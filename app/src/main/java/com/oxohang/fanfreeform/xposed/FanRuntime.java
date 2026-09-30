@@ -365,8 +365,16 @@ final class FanRuntime {
         pressureSensor = pressureSensorManager == null ? null
                 : pressureSensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE);
         if (pressureSensor != null) {
-            int maxDelay = pressureSensor.getMaxDelay();
-            pressureSensorMaxDelayUs = maxDelay > 0 ? maxDelay : 31250;
+            // 采样周期取传感器支持的最快速率：Sensor.getMaxDelay() 表示最小延迟，
+            // 即最快的采样间隔。目标机型（thyme）气压计为 bosch_bmp285，标称
+            // 1Hz~25Hz 且为 non-wakeup，因此最快约每 40ms 一个样本。
+            // 个别 ROM 会返回 0（能力未知），此时回退到 32Hz；同时用传感器
+            // 声明的最慢间隔兜底，避免请求超出硬件能力。
+            int fastest = pressureSensor.getMaxDelay();
+            if (fastest <= 0) fastest = 31250;
+            int slowest = pressureSensor.getMinDelay();
+            if (slowest > 0 && fastest > slowest) fastest = slowest;
+            pressureSensorMaxDelayUs = fastest;
         }
         refreshDisplayGeometry();
         ViewConfiguration viewConfiguration = ViewConfiguration.get(context);
@@ -827,6 +835,16 @@ final class FanRuntime {
             outsideGestures.onCancel();
             Log.e("Gesture event failed safely", error);
         }
+    }
+
+    /** 已经接上系统原生输入通道（wm.shell 事件控制器）时为真。 */
+    boolean usesNativeInput() {
+        return inputSources.usesNativeInput();
+    }
+
+    /** 自建边缘捕获窗口正在处理手势时为真，用于避免同一手势被两条通道重复投递。 */
+    boolean isCapturingByOverlay() {
+        return triggerCapture.isCapturing();
     }
 
     /** Copies the vendor input event and processes it on the main gesture looper. */

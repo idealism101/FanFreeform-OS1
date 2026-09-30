@@ -8,3 +8,6 @@ releases/
 captures/
 *.iml
 .DS_Store
+
+# WorkBuddy 会话数据（非项目源码）
+.workbuddy/
