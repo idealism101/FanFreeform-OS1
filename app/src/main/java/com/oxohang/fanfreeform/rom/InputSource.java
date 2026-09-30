@@ -1,23 +1,34 @@
 package com.oxohang.fanfreeform.rom;
 
+import android.content.Context;
+
 /**
- * 边缘/系统手势输入源的统一接口 —— 预留给后续侧滑与边缘手势接入的扩展点。
+ * 边缘/系统手势输入源的统一接口 —— 业务层只面对这层契约，不接触 ROM 类名与反射。
  *
- * <p>本阶段只定义契约：事件一律以原始 {@code MotionEvent} 透传（用 {@code Object}
- * 声明以兼容单元测试与多进程），具体手势语义由业务层处理。OS1 上没有 wm.shell 原生
- * 事件控制器，因此本阶段的实现恒为 {@link Kind#NONE}、{@link #start} 返回
- * {@code UNSUPPORTED}；后续可以基于 {@code com.android.systemui.fsgesture.GestureStubView}
- * 实现一个 {@code SYSTEM_GESTURE_VIEW} 版本而无需改动调用方。
+ * <p>事件一律以原始 {@code MotionEvent} 透传（用 {@code Object} 声明以兼容单元测试与
+ * 多进程），具体手势语义由业务层处理。能否抢占指针取决于实现是否持有系统
+ * {@code InputMonitor}：
+ * <ul>
+ *   <li>{@link Kind#SHELL_EVENT_CONTROLLER}：ROM 自己的事件控制器回调，附 InputMonitor</li>
+ *   <li>{@link Kind#FRAMEWORK_GESTURE_MONITOR}：直接向框架注册手势监听，附 InputMonitor</li>
+ *   <li>{@link Kind#SYSTEM_GESTURE_VIEW}：只读旁路，拿不到 InputMonitor，无法抢占</li>
+ * </ul>
  */
 public interface InputSource {
 
     enum Kind {
-        /** 当前 ROM 上没有可用的系统输入源。 */
+        /** 当前没有可用的系统输入源。 */
         NONE,
-        /** 系统手势 View（例如 OS1 的 GestureStubView）。 */
+        /** 系统手势 View（例如 OS1 的 GestureStubView）：只读旁路，无法抢占指针。 */
         SYSTEM_GESTURE_VIEW,
-        /** wm.shell 原生事件控制器（较新 ROM，附 InputMonitor，可 pilfer）。 */
-        SHELL_EVENT_CONTROLLER
+        /** wm.shell 原生事件控制器（较新 ROM，回调附 InputMonitor，可 pilfer）。 */
+        SHELL_EVENT_CONTROLLER,
+        /**
+         * 框架标准手势监听：{@code InputManager.monitorGestureInput()} 建立的
+         * 系统级手势监听，自己持有 InputMonitor，可 pilfer。不依赖任何 ROM 私有类，
+         * 是 OS3 事件控制器内部所用的同一套机制。
+         */
+        FRAMEWORK_GESTURE_MONITOR
     }
 
     interface MotionListener {
@@ -31,9 +42,23 @@ public interface InputSource {
     /** 输入源当前是否可用（kind != NONE 且底层目标已就绪）。 */
     boolean isAvailable();
 
-    /** 启动输入源并开始把事件转发给 listener；本阶段 OS1 实现恒返回 UNSUPPORTED。 */
-    BridgeResult<Void> start(MotionListener listener);
+    /**
+     * 输入源持有的系统 {@code InputMonitor}；不持有时返回 null。
+     *
+     * <p>框架不在 SDK 中暴露该类，故以 {@code Object} 交接，由业务层反射调用
+     * {@code pilferPointers()}。这是"能抢占指针"的唯一凭据：没有它就只能旁听，
+     * 无法从系统手势链路里抢走当前手势。
+     */
+    Object monitorHandle();
 
-    /** 停止输入源并解除转发。 */
+    /**
+     * 用宿主 Context 启动输入源，并把事件转发给 listener。
+     *
+     * @param context 宿主进程的 Context（用于取 {@code InputManager} 与所在 display）
+     * @return 成功返回 {@code OK}；起点缺失/被框架拒绝时返回对应 Code 与原因，不抛异常
+     */
+    BridgeResult<Void> start(Context context, MotionListener listener);
+
+    /** 停止输入源并解除转发，释放系统侧资源。 */
     void stop();
 }

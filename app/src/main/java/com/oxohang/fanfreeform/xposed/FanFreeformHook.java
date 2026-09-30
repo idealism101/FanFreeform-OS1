@@ -130,8 +130,13 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                     Log.attachReporter(systemUiContext);
                     Log.i("SystemUI application attached package="
                             + systemUiContext.getPackageName());
-                    ensureRuntime(systemUiContext, classLoader);
+                    FanRuntime created = ensureRuntime(systemUiContext, classLoader);
                     probeSystemUiInterfaces(classLoader);
+                    // 系统手势监听是 OS1 上的原生输入通道（与 OS3 事件控制器同源，自带
+                    // InputMonitor 因而可 pilfer）。先于 ROM 事件控制器探测：后者在
+                    // OS1 上不存在，即便存在也不会重复接管（attachSystemGestureMonitor
+                    // 在已接管时直接返回）。
+                    if (created != null) created.attachSystemGestureMonitor(systemUiContext);
                     // The first class lookup can happen before Application.attach(). Retry
                     // here, and then scan the ROM dex for renamed HyperOS 2 classes below.
                     hookFreeformController(classLoader);

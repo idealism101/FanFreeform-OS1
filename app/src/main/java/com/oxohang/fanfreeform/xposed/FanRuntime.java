@@ -39,6 +39,9 @@ import com.oxohang.fanfreeform.config.PressureHapticFeedback;
 import com.oxohang.fanfreeform.config.PressurePulseRecognizer;
 import com.oxohang.fanfreeform.config.PressureTrigger;
 import com.oxohang.fanfreeform.config.ShortcutIconLoader;
+import com.oxohang.fanfreeform.rom.BridgeResult;
+import com.oxohang.fanfreeform.rom.InputSource;
+import com.oxohang.fanfreeform.rom.RomBridge;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -515,6 +518,37 @@ final class FanRuntime {
         mainHandler.post(this::refreshTriggerCapture);
         Log.i("Input capability native_input=failed corner_fallback="
                 + (cornerFallbackAvailable ? "ready" : "waiting"));
+    }
+
+    /**
+     * 向框架注册系统手势监听，把全局手势流接进业务层。
+     *
+     * <p>这条通道与 OS3 的 wm.shell 事件控制器同源：框架把手势事件投递到本进程，
+     * 同时返回一个 {@code InputMonitor}，业务层拿到它就能 {@code pilferPointers()}，
+     * 从系统手势链路里抢走当前手势 —— 与 OS3 上由系统回调附带 InputMonitor 的效果一致。
+     *
+     * <p>已经由 OS3 事件控制器接管时直接跳过，避免同一手势被两条通道重复投递。
+     * 注册失败不静默降级：如实登记失败并保留自建兜底窗口，原因写进日志。
+     */
+    void attachSystemGestureMonitor(Context hostContext) {
+        if (hostContext == null) return;
+        if (usesNativeInput()) return;
+        if (!beginNativeInputRegistration()) return;
+        InputSource source = RomBridge.get().input();
+        BridgeResult<Void> started = source.start(hostContext, event -> {
+            if (!(event instanceof MotionEvent)) return;
+            onMotion((MotionEvent) event, source.monitorHandle());
+        });
+        if (started.isOk()) {
+            completeNativeInputRegistration();
+            Log.i("System gesture monitor attached kind=" + source.kind()
+                    + " monitor=" + (source.monitorHandle() != null));
+        } else {
+            failNativeInputRegistration();
+            Log.e("System gesture monitor unavailable code=" + started.code()
+                    + " detail=" + started.detail(), new IllegalStateException(
+                    "framework gesture monitor registration failed"));
+        }
     }
 
     void reportNativeInputMissing() {

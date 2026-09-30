@@ -42,9 +42,14 @@
 - `MulWinSwitchEventController` 的三个候选（含 `miuimultiwinswitch` 各种前缀）在真机 **全部 MISS**
 - 说明：HyperOS 1 的 `com.android.wm.shell.miuimultiwinswitch.*` 包存在，但里面只有
   `MiuiMultiWinSwitchController` / `MiuiMultiwinTouchStatus` 等，没有该事件控制器
-- 影响：原生输入接管失败，只能回退到自建边缘捕获窗口
-- 修复（本阶段）：对接层把「输入源」收敛成 `rom/InputSource` 扩展点，当前为占位实现
-  （恒 `NONE` / `UNSUPPORTED`）；侧滑返回与边缘手势留到后续阶段单独接（见 P4）
+- 影响（**已改写**）：ROM 私有事件控制器确实不存在，但这**不等于**没有原生输入通道。
+  真机已证实可走框架标准手势监听 `InputManager.monitorGestureInput(name, displayId)`，
+  返回值自带 `InputMonitor`，可 `pilferPointers()` —— 与 OS3 事件控制器内部所用机制同源
+- 修复（已完成）：`rom/InputSource` 扩展点已由占位实现换成
+  `GestureMonitorInputSource`（`Kind.FRAMEWORK_GESTURE_MONITOR`），并已接线到业务层。
+  真机 `native_input=ready` + 注入手势实测 `capture=pilfer`，与 OS3 行为一致，
+  **已不需要回退到自建边缘捕获窗口**（自建窗口在原生通道就绪后自动停用）
+- 证据与 A/B 对照见 `docs/os1-bridge-device-test.md` 第 7 节
 
 ### P4 · 系统边缘手势入口（已核验存在，交互实现留到后续阶段）
 
@@ -55,6 +60,9 @@
 - 处理（本阶段）：只把它登记进能力快照（`Os1Capabilities.systemGestureView`，
   真机实测命中），**不做 hook、不实现侧滑/边缘手势交互**，等后续阶段沿
   `rom/InputSource` 扩展点接入
+- **实测补充（重要）**：探针曾 hook 其 `onTouchEvent`（`hooks=1`，挂上了），但真机上
+  **一次都没触发**（两组 A/B 均 0 条）。即它在 HyperOS 1 上根本不收触摸，是 MIUI 12 遗留
+  路径。因此它连"只读旁路"都算不上（读了也是空的），正式实现不得依赖它
 
 ### P5 · 控制中心类名不匹配（界面冲突风险）
 
@@ -124,7 +132,8 @@
 | `rom/FreeformAccess.java` | 自由窗口：可用性、真实类名、登记控制器实例、声明 Pin/动画支持 |
 | `rom/ControlCenterAccess.java` | 控制中心：只声明可用性与真实类名（OS1 的实例是 Dagger 注入、取不到，故不假装提供 `expand/collapse`） |
 | `rom/RecentsAccess.java` | 最近任务：可用性与真实类名 |
-| `rom/InputSource.java` | **扩展点**：`Kind{NONE, SYSTEM_GESTURE_VIEW, SHELL_EVENT_CONTROLLER}` + `MotionListener` + `start/stop`；当前 `PlaceholderInputSource` |
+| `rom/InputSource.java` | **扩展点**：`Kind{NONE, SYSTEM_GESTURE_VIEW, SHELL_EVENT_CONTROLLER, FRAMEWORK_GESTURE_MONITOR}` + `MotionListener` + `start/stop` + `monitorHandle()`（能否 `pilferPointers()` 的唯一凭据） |
+| `rom/GestureMonitorInputSource.java` | **原生输入源实现**：`InputManager.monitorGestureInput()` → `InputMonitor.getInputChannel()` → `InputChannelCompat$InputEventReceiver` → 透传 `MotionEvent`。与 OS3 事件控制器内部机制同源，不依赖任何 ROM 私有类 |
 | `rom/RomBridgeTest.java`（test） | 10 个纯 JVM 单测：结果结构、候选探测顺序与空值、OS1 候选命中、快照与 `describe()` |
 
 ### 4.2 关键实现点
@@ -136,6 +145,13 @@
 - **快照按进程**：模块在每个宿主进程各加载一份，单例互不干扰；
   SystemUI 与桌面各自 `attach` 一次，缺失项记 `null`，由 `isAvailable()` 如实反映
 - **不做机型/版本分支**：全部靠「谁存在就用谁」的运行时探测
+- **原生输入接线**（`FanRuntime.attachSystemGestureMonitor(Context)`）：
+  1. 已被 OS3 事件控制器接管则直接返回，避免同一手势被两条通道重复投递
+  2. `beginNativeInputRegistration()` → 向框架注册手势监听 → 成功
+     `completeNativeInputRegistration()`（状态机切到 `NATIVE_GLOBAL`，自建兜底窗口停用），
+     失败 `failNativeInputRegistration()` 并**如实记录原因**，不做静默降级
+  3. 事件直接 `onMotion(motion, monitorHandle())` 交给业务层，业务层沿用既有的
+     8 处 `pilfer()` 调用点 —— 与 OS3 完全一致
 
 ### 4.3 真机实测能力快照（thyme / HyperOS 1.0）
 

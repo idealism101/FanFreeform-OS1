@@ -207,3 +207,65 @@ ClassLoader 里，而快照只在 SystemUI 构建 → `recentsContainer` 恒为 
 - 两进程各自 attach，缺失项按「本进程不可用」如实为 `-`，无跨进程误报
 - 新 SystemUI（PID 13102）与 MiuiHome（PID 12927）检索 `Exception / failed / Error`：**0 条**
 - MiuiHome 后续钩子正常：recents clear-button、Shortcut host active、catalog refresh 完成
+
+---
+
+## 7. 原生输入通道：可行性探针 + 严格 A/B（19:13，已闭环）
+
+### 7.1 结论
+
+OS1 上**存在**与 OS3 同源的原生输入通道：框架标准手势监听
+`InputManager.monitorGestureInput(name, displayId)`，返回值自带 `InputMonitor`，
+可 `pilferPointers()`。已真机证实有效，已正式接线，未使用任何降级/替代方案。
+
+### 7.2 探针先行的原因
+
+`pilferPointers()` 调用不抛异常 ≠ 真的抢到了手势。为排除"其实没生效"的误判，
+先装了一版**只带探针**的包（只观察 + 一次可开关的抢占），用 `setprop` 做严格 A/B，
+确认后才写正式实现；探针代码随后整段删除。
+
+### 7.3 A/B 严格对照（同一次开机、同一进程 PID 24601）
+
+观测目标：Settings 的 `WifiSettingsActivity`，边缘滑动若生效会退回 Launcher。
+
+| 组 | `persist.fanprobe.pilfer` | 日志 | 滑动前 | 滑动后 |
+|---|---|---|---|---|
+| A（对照） | `0` | `doPilfer=false ok=false monitor=true` | `WifiSettingsActivity` | `com.miui.home/.launcher.Launcher` |
+| B（抢占） | `1` | `doPilfer=true ok=true monitor=true` | `WifiSettingsActivity` | `WifiSettingsActivity`（**未返回**） |
+| B 复测 | `1` | 同上 | `WifiSettingsActivity` | `WifiSettingsActivity`（**未返回**） |
+
+注入命令（事件能进手势监听，无需人工滑动）：
+
+```bash
+adb shell am start -a android.settings.WIFI_SETTINGS
+adb shell input swipe 3 1300 520 1300 350
+```
+
+结论：**调用 `pilferPointers()` 后系统返回手势被真实掐断**，不是"它本来就不触发"。
+
+### 7.4 探针顺带排除的错误结论
+
+探针同时挂了 `com.android.systemui.fsgesture.GestureStubView#onTouchEvent`
+（hook 成功，`hooks=1`），但**两组都是 0 条事件**——它在 HyperOS 1 上就是不收触摸
+（MIUI 12 的旧路径）。因此"stub 静默"**不能**用来证明 pilfer 生效；这也是
+"读 GestureStubView 旁路"之所以是降级方案（拿不到 InputMonitor，无法抢占）的实测依据。
+
+### 7.5 正式接线后的端到端验证（PID 31813）
+
+```
+Input capability native_input=switching corner_fallback=inactive
+Input capability native_input=ready     corner_fallback=inactive
+System gesture monitor attached kind=FRAMEWORK_GESTURE_MONITOR monitor=true
+Input capability freeform=ready native_input=ready
+```
+
+- 自建兜底窗口已按状态机自动停用（`corner_fallback=inactive`），不再与原生通道并存
+- 左下角注入滑动 → 业务层完整识别：
+  ```
+  Fan hot zone armed on down corner=LEFT
+  Fan input claimed after inward-upward direction distance=28 capture=pilfer   ← 抢占生效
+  Fan released without icon hit; launch cancelled
+  ```
+- 负向：屏幕中央滑动 → 业务层**零输出**，全局手势流未造成误触发
+- 稳定性：本轮 SystemUI 检索 `E/LSPosed` / `Exception`：**0 条**
+- 事件坐标为屏幕坐标（`x == rawX`），与业务层既有坐标系一致，无需换算

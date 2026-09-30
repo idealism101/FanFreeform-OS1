@@ -1,5 +1,7 @@
 package com.oxohang.fanfreeform.rom;
 
+import android.content.Context;
+
 /**
  * OS1 原生能力的对接层门面。
  *
@@ -16,8 +18,8 @@ package com.oxohang.fanfreeform.rom;
  * <ul>
  *   <li>{@link FreeformAccess}：解析类名、登记控制器实例、声明 Pin/动画支持</li>
  *   <li>{@link ControlCenterAccess} / {@link RecentsAccess}：声明可用性与真实类名</li>
- *   <li>{@link InputSource}：占位实现，恒 {@code NONE}/{@code UNSUPPORTED}，
- *       为后续侧滑与边缘手势预留扩展点</li>
+ *   <li>{@link InputSource}：向框架注册系统手势监听，拿到与 OS3 同源的
+ *       {@code InputMonitor}，业务层据此 {@code pilferPointers()}；注册失败时如实报错</li>
  * </ul>
  */
 public final class RomBridge {
@@ -44,7 +46,7 @@ public final class RomBridge {
     private final Os1FreeformAccess freeform = new Os1FreeformAccess();
     private final Os1ControlCenterAccess controlCenter = new Os1ControlCenterAccess();
     private final Os1RecentsAccess recents = new Os1RecentsAccess();
-    private final InputSource input = new PlaceholderInputSource();
+    private final InputSource input = new Os1GestureMonitorInputSource();
 
     private RomBridge() { }
 
@@ -203,25 +205,57 @@ public final class RomBridge {
     }
 
     /**
-     * 输入源占位实现：OS1 上没有 wm.shell 原生事件控制器，边缘手势接入留待后续。
-     * 保留统一的接口形状，后续实现 SYSTEM_GESTURE_VIEW 版本时调用方无需改动。
+     * 系统手势输入源：向框架注册 {@code monitorGestureInput} 手势监听。
+     *
+     * <p>OS1 上没有 wm.shell 原生事件控制器，但框架标准的手势监听机制是可用的，
+     * 且正是 OS3 事件控制器内部所用的同一套：注册后框架把手势事件直接投递给本进程，
+     * 并返回 {@code InputMonitor}，业务层因此具备与 OS3 完全一致的
+     * {@code pilferPointers()} 抢占能力。不依赖任何 ROM 私有类名。
+     *
+     * <p>注册失败（框架拒绝、隐藏 API 被拦、{@code InputChannelCompat} 缺失）时
+     * 如实返回失败原因，由调用方决定是否退回自建兜底窗口，此处不做任何替代实现。
      */
-    private static final class PlaceholderInputSource implements InputSource {
+    private final class Os1GestureMonitorInputSource implements InputSource {
+        private volatile GestureMonitorInputSource delegate;
+
         @Override public Kind kind() {
-            return Kind.NONE;
+            GestureMonitorInputSource active = delegate;
+            return active == null ? Kind.NONE : active.kind();
         }
 
         @Override public boolean isAvailable() {
-            return false;
+            GestureMonitorInputSource active = delegate;
+            return active != null && active.isAvailable();
         }
 
-        @Override public BridgeResult<Void> start(MotionListener listener) {
-            return BridgeResult.fail(BridgeResult.Code.UNSUPPORTED,
-                    "no system input source wired in this stage");
+        @Override public Object monitorHandle() {
+            GestureMonitorInputSource active = delegate;
+            return active == null ? null : active.monitorHandle();
         }
 
-        @Override public void stop() {
-            // 占位实现无状态。
+        @Override public synchronized BridgeResult<Void> start(Context context,
+                                                              MotionListener listener) {
+            ClassLoader classLoader = boundClassLoader;
+            if (classLoader == null) {
+                return BridgeResult.fail(BridgeResult.Code.INVOCATION_FAILED,
+                        "RomBridge is not attached; call attach(ClassLoader) first");
+            }
+            GestureMonitorInputSource existing = delegate;
+            if (existing != null && existing.isAvailable()) return BridgeResult.ok(null);
+            GestureMonitorInputSource created = new GestureMonitorInputSource(classLoader);
+            BridgeResult<Void> started = created.start(context, listener);
+            if (started.isOk()) {
+                delegate = created;
+            } else {
+                created.stop();
+            }
+            return started;
+        }
+
+        @Override public synchronized void stop() {
+            GestureMonitorInputSource active = delegate;
+            delegate = null;
+            if (active != null) active.stop();
         }
     }
 }
