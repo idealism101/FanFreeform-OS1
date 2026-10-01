@@ -26,7 +26,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-final class TaskSwitcherOverlayView extends View {
+final class TaskSwitcherOverlayView extends View
+        implements TaskSwitcherOverlayController.Surface {
     interface Listener {
         void onLaunch(RecentTaskPreview task);
         void onClosed();
@@ -147,13 +148,13 @@ final class TaskSwitcherOverlayView extends View {
         if (backgroundStyle == ConfigContract.HONEYCOMB_BACKGROUND_BLUR) loadWallpaper();
     }
 
-    void playEntry() {
+    public void playEntry() {
         requestFocus();
         animateProgress(0f, 1f, TaskCenterAnimationPolicy.durationMs(245L,
                 animationSpeedIndex), false);
     }
 
-    void onExternalMove(float x, float y) {
+    public void onExternalMove(float x, float y) {
         if (closing) return;
         pointerY = y;
         float contentWidth = layoutMode == ConfigContract.SIDE_TASK_LAYOUT_ICONS
@@ -201,14 +202,14 @@ final class TaskSwitcherOverlayView extends View {
         invalidate();
     }
 
-    void onExternalUp(float x, float y, boolean cancelled) {
+    public void onExternalUp(float x, float y, boolean cancelled) {
         if (closing) return;
         onExternalMove(x, y);
         if (cancelled || selected < 0 || selected >= tasks.size()) playDismissal();
         else playConfirmation(selected);
     }
 
-    void onExternalCancel() { playDismissal(); }
+    public void onExternalCancel() { playDismissal(); }
 
     @Override protected void onSizeChanged(int width, int height,
                                            int oldWidth, int oldHeight) {
@@ -473,7 +474,7 @@ final class TaskSwitcherOverlayView extends View {
         confirm.start();
     }
 
-    void playDismissal() {
+    public void playDismissal() {
         if (closing) return;
         closing = true;
         animateProgress(entryProgress, 0f,
@@ -523,7 +524,7 @@ final class TaskSwitcherOverlayView extends View {
         return true;
     }
 
-    void releaseResources() {
+    public void releaseResources() {
         released = true;
         listener = null;
         if (animator != null) animator.cancel();

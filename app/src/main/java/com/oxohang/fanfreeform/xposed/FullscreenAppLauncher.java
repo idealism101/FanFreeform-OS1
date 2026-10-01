@@ -9,8 +9,16 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.Toast;
 
-import de.robv.android.xposed.XposedHelpers;
+import java.lang.reflect.Method;
 
+/**
+ * 全屏启动器。
+ *
+ * <p>反射一律用标准库 {@link java.lang.reflect} 而不是 {@code XposedHelpers}：
+ * 本类既在 SystemUI 进程（Xposed 已注入）被调用，也在模块自身进程
+ * （任务中心列表 Activity 的宿主，**没有 Xposed 运行时**）被调用 ——
+ * 后者类加载器里没有 {@code de.robv.android.xposed.*}，引用即崩。
+ */
 final class FullscreenAppLauncher {
     private final Context context;
 
@@ -28,7 +36,7 @@ final class FullscreenAppLauncher {
             ActivityOptions options = centeredSystemAnimation
                     ? centeredScaleOptions(context) : ActivityOptions.makeBasic();
             try {
-                XposedHelpers.callMethod(options, "setLaunchWindowingMode", 1);
+                setOptionFlag(options, "setLaunchWindowingMode", 1);
             } catch (Throwable ignored) { }
             try {
                 Object display = context.getDisplay();
@@ -98,17 +106,44 @@ final class FullscreenAppLauncher {
     // HyperOS normally replaces an app-supplied animation when an existing task is
     // brought to the front. This framework flag asks WindowManager to keep ours.
     private static void forceOverrideTaskTransition(ActivityOptions options, String label) {
-        try {
-            XposedHelpers.callMethod(options, "setOverrideTaskTransition", true);
+        if (setOptionFlag(options, "setOverrideTaskTransition", true)) {
             Log.i("Using " + label + " task animation");
+            return;
+        }
+        // Older HyperOS builds may only expose the backing field.
+        try {
+            java.lang.reflect.Field field =
+                    ActivityOptions.class.getDeclaredField("mOverrideTaskTransition");
+            field.setAccessible(true);
+            field.setBoolean(options, true);
+            Log.i("Using " + label + " task animation (field fallback)");
+        } catch (Throwable ignored) {
+            Log.i("Cannot force " + label + " task transition");
+        }
+    }
+
+    /** 反射调用 ActivityOptions 上的隐藏 setter，返回是否成功。 */
+    private static boolean setOptionFlag(ActivityOptions options, String method,
+                                         boolean value) {
+        try {
+            Method target = ActivityOptions.class.getDeclaredMethod(method, boolean.class);
+            target.setAccessible(true);
+            target.invoke(options, value);
+            return true;
         } catch (Throwable error) {
-            // Older HyperOS builds may only expose the backing field.
-            try {
-                XposedHelpers.setBooleanField(options, "mOverrideTaskTransition", true);
-                Log.i("Using " + label + " task animation (field fallback)");
-            } catch (Throwable ignored) {
-                Log.i("Cannot force " + label + " task transition");
-            }
+            return false;
+        }
+    }
+
+    /** 反射调用 ActivityOptions 上的隐藏 setter，返回是否成功。 */
+    private static boolean setOptionFlag(ActivityOptions options, String method, int value) {
+        try {
+            Method target = ActivityOptions.class.getDeclaredMethod(method, int.class);
+            target.setAccessible(true);
+            target.invoke(options, value);
+            return true;
+        } catch (Throwable error) {
+            return false;
         }
     }
 }

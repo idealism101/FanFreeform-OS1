@@ -79,6 +79,11 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
     private static volatile boolean applicationAttachHookInstalled;
     private static volatile boolean inputControllerHookInstalled;
     private static volatile boolean freeformControllerHookInstalled;
+
+    /** 供同包内的收件端取用当前运行时实例（不额外暴露给模块外）。 */
+    static FanRuntime runtime() {
+        return runtime;
+    }
     private static final Set<String> REPORTED_PROXY_METHODS =
             Collections.synchronizedSet(new LinkedHashSet<>());
 
@@ -140,6 +145,7 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                     // The first class lookup can happen before Application.attach(). Retry
                     // here, and then scan the ROM dex for renamed HyperOS 2 classes below.
                     hookFreeformController(classLoader);
+                    hookSoScSplitController(classLoader);
                     hookInputController(classLoader);
                     scanRomClassesAsync(classLoader);
                 }
@@ -158,6 +164,42 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
         probeClass(classLoader, "freeformPinHandler", FREEFORM_PIN_HANDLER);
         probeClass(classLoader, "freeformAnimation", FREEFORM_ANIMATION);
         Log.i("SystemUI probe complete uptime=" + SystemClock.uptimeMillis());
+    }
+
+    /**
+     * MIUI 分屏（SoSc）控制器实例捕获。OS1 分屏不走 AOSP SplitScreen，
+     * 入口为 SoScSplitScreenController.startTask(taskId, position, options)。
+     * 同时捕获 SoScStageCoordinator（读取 main/side stage 当前物理位置用）。
+     */
+    private static void hookSoScSplitController(ClassLoader classLoader) {
+        try {
+            Class<?> controllerClass = XposedHelpers.findClassIfExists(
+                    "com.android.wm.shell.sosc.SoScSplitScreenController", classLoader);
+            if (controllerClass == null) {
+                Log.i("SoSc split controller is unavailable; split action disabled safely");
+                return;
+            }
+            XposedBridge.hookAllConstructors(controllerClass, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    FanRuntime active = runtime;
+                    if (active != null) active.setSoScSplitController(param.thisObject);
+                    Log.i("SoSc split controller connected");
+                }
+            });
+            Class<?> coordinatorClass = XposedHelpers.findClassIfExists(
+                    "com.android.wm.shell.sosc.SoScStageCoordinator", classLoader);
+            if (coordinatorClass != null) {
+                XposedBridge.hookAllConstructors(coordinatorClass, new XC_MethodHook() {
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        FanRuntime active = runtime;
+                        if (active != null) active.setSoScStageCoordinator(param.thisObject);
+                        Log.i("SoSc stage coordinator connected");
+                    }
+                });
+            }
+        } catch (Throwable error) {
+            Log.e("SoSc split controller hook failed", error);
+        }
     }
 
     private static void probeClass(ClassLoader classLoader, String role, String... names) {
@@ -676,6 +718,9 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
         runtime = created;
         if (freeformController != null) created.setFreeformController(freeformController);
         installExternalLaunchReceiver(appContext);
+        // 列表 Activity 运行在模块进程，与 SystemUI 进程并列；用户在列表里选的动作
+        // 通过这条收件端回到这里，才能调用只存在于本进程的 SoSc/小窗控制器。
+        TaskCenterActionReceiver.install(appContext);
         Log.i("SystemUI runtime initialized with corner input fallback");
         return created;
     }

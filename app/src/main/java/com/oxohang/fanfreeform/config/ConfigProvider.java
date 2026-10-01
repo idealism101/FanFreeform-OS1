@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Process;
+import android.os.SystemClock;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
@@ -24,6 +25,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class ConfigProvider extends ContentProvider {
+
+    /**
+     * 任务中心列表的一次性快照（SystemUI 进程写入 → 模块进程列表 Activity 取走）。
+     *
+     * <p>这是跨进程交接，进程内静态字段即可承载：Provider 与列表 Activity
+     * 运行在同一个模块进程里，而写入方通过 {@code ContentResolver.call} 送进来。
+     */
+    private static volatile Bundle taskListSnapshot;
     @Override
     public boolean onCreate() {
         return true;
@@ -687,6 +696,35 @@ public final class ConfigProvider extends ContentProvider {
                 context.getContentResolver().notifyChange(ConfigContract.CATALOG_URI, null);
             }
             return Bundle.EMPTY;
+        }
+        if (ConfigContract.METHOD_REPORT_TASK_LIST.equals(method) && extras != null) {
+            // 任务列表只有 SystemUI 进程读得到（它持有 GET_TASKS 能力）；
+            // 承载列表窗口的 Activity 在模块进程，那里没有该权限。
+            // 因此由 SystemUI 进程把快照写到这里，Activity 再取走。
+            long stamp = SystemClock.uptimeMillis();
+            Bundle snapshot = new Bundle();
+            snapshot.putIntArray(ConfigContract.EXTRA_TASK_IDS,
+                    extras.getIntArray(ConfigContract.EXTRA_TASK_IDS));
+            snapshot.putStringArrayList(ConfigContract.EXTRA_TASK_PACKAGES,
+                    extras.getStringArrayList(ConfigContract.EXTRA_TASK_PACKAGES));
+            snapshot.putStringArrayList(ConfigContract.EXTRA_TASK_LABELS,
+                    extras.getStringArrayList(ConfigContract.EXTRA_TASK_LABELS));
+            snapshot.putLong(ConfigContract.EXTRA_TASK_LIST_TIME, stamp);
+            taskListSnapshot = snapshot;
+            return Bundle.EMPTY;
+        }
+        if (ConfigContract.METHOD_GET_TASK_LIST.equals(method)) {
+            Bundle snapshot = taskListSnapshot;
+            if (snapshot == null) return Bundle.EMPTY;
+            long age = SystemClock.uptimeMillis()
+                    - snapshot.getLong(ConfigContract.EXTRA_TASK_LIST_TIME, 0L);
+            if (age < 0L || age > ConfigContract.TASK_LIST_SNAPSHOT_MAX_AGE_MS) {
+                // 过期快照会显示已经关掉的任务，宁可让列表显示为空。
+                taskListSnapshot = null;
+                return Bundle.EMPTY;
+            }
+            taskListSnapshot = null;
+            return snapshot;
         }
         if ("report_diagnostics".equals(method) && extras != null) {
             String process = extras.getString(ConfigContract.EXTRA_DIAGNOSTIC_PROCESS, "");

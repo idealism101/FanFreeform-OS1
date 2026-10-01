@@ -10,9 +10,32 @@ import android.view.WindowManager;
 
 import java.util.List;
 
+/**
+ * 任务中心承载层：按设置的任务布局档位选择视图，并统一管理窗口生命周期。
+ *
+ * <p>第三档（三星同款卡片列表）**不在这里**：列表必须是普通应用窗口才能被系统
+ * 当"当前界面"收起，而本类是 overlay 承载层（ty=2038，系统窗口层实测不可聚焦），
+ * 因此卡片列表交给模块进程的 {@code TaskCenterListActivity}。
+ * 本类只承载视差卡片（第一/第二档）。
+ */
 final class TaskSwitcherOverlayController {
+    /** 任务中心视差卡片对控制器的统一表面。 */
+    interface Surface {
+        void playEntry();
+        void onExternalMove(float x, float y);
+        void onExternalUp(float x, float y, boolean cancelled);
+        void onExternalCancel();
+        void playDismissal();
+        void releaseResources();
+        Handler getHandler();
+    }
+
     interface Listener {
         void onLaunch(RecentTaskPreview task);
+        void onCloseTask(RecentTaskPreview task);
+        void onCloseAll();
+        void onListAction(int action, RecentTaskPreview task,
+                          RecentTaskRepository.ShortcutEntry shortcut);
         void onClosed();
     }
 
@@ -20,14 +43,14 @@ final class TaskSwitcherOverlayController {
     private final Handler mainHandler;
     private final WindowManager windowManager;
     private final Object moveLock = new Object();
-    private TaskSwitcherOverlayView view;
+    private Surface view;
     private boolean attached;
-    private TaskSwitcherOverlayView pendingMoveView;
+    private Surface pendingMoveView;
     private float pendingMoveX;
     private float pendingMoveY;
     private boolean moveFrameScheduled;
     private final Runnable deliverPendingMove = () -> {
-        TaskSwitcherOverlayView target;
+        Surface target;
         float x;
         float y;
         synchronized (moveLock) {
@@ -51,25 +74,16 @@ final class TaskSwitcherOverlayController {
                  GestureConfig config, Listener listener) {
         removeNow();
         if (windowManager == null || tasks == null || tasks.isEmpty()) return false;
-        TaskSwitcherOverlayView next = new TaskSwitcherOverlayView(context);
-        next.configure(tasks, corner, anchorX, anchorY, config,
-                new TaskSwitcherOverlayView.Listener() {
-            @Override public void onLaunch(RecentTaskPreview task) {
-                removeNow();
-                listener.onLaunch(task);
-            }
-
-            @Override public void onClosed() {
-                removeNow();
-                listener.onClosed();
-            }
-        });
+        Surface next = createCardSurface(tasks, corner, anchorX, anchorY, config, listener);
+        Log.i("Task switcher surface layout=" + config.sideTaskLayoutMode
+                + " tasks=" + tasks.size() + " kind=card");
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 windowManager.getCurrentWindowMetrics().getBounds().height(),
                 2038,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                         | WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
@@ -78,7 +92,7 @@ final class TaskSwitcherOverlayController {
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams
                 .LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         try {
-            windowManager.addView(next, params);
+            windowManager.addView((View) next, params);
             view = next;
             attached = true;
             next.playEntry();
@@ -92,10 +106,30 @@ final class TaskSwitcherOverlayController {
         }
     }
 
+    private Surface createCardSurface(List<RecentTaskPreview> tasks,
+                                      GestureGeometry.Corner corner,
+                                      float anchorX, float anchorY,
+                                      GestureConfig config, Listener listener) {
+        TaskSwitcherOverlayView card = new TaskSwitcherOverlayView(context);
+        card.configure(tasks, corner, anchorX, anchorY, config,
+                new TaskSwitcherOverlayView.Listener() {
+                    @Override public void onLaunch(RecentTaskPreview task) {
+                        removeNow();
+                        listener.onLaunch(task);
+                    }
+
+                    @Override public void onClosed() {
+                        removeNow();
+                        listener.onClosed();
+                    }
+                });
+        return card;
+    }
+
     boolean isVisible() { return attached && view != null; }
 
     void externalMove(float x, float y) {
-        TaskSwitcherOverlayView current = view;
+        Surface current = view;
         if (!attached || current == null) return;
         synchronized (moveLock) {
             pendingMoveView = current;
@@ -104,28 +138,28 @@ final class TaskSwitcherOverlayController {
             if (moveFrameScheduled) return;
             moveFrameScheduled = true;
         }
-        current.postOnAnimation(deliverPendingMove);
+        ((View) current).postOnAnimation(deliverPendingMove);
     }
 
     void externalUp(float x, float y, boolean cancelled) {
-        TaskSwitcherOverlayView current = view;
+        Surface current = view;
         cancelPendingMove(current);
         runOnViewThread(current, () -> current.onExternalUp(x, y, cancelled));
     }
 
     void externalCancel() {
-        TaskSwitcherOverlayView current = view;
+        Surface current = view;
         cancelPendingMove(current);
         runOnViewThread(current, current::onExternalCancel);
     }
 
     void dismiss() {
-        TaskSwitcherOverlayView current = view;
+        Surface current = view;
         runOnViewThread(current, current::playDismissal);
     }
 
     void removeNow() {
-        TaskSwitcherOverlayView current = view;
+        Surface current = view;
         cancelPendingMove(current);
         view = null;
         if (!attached || current == null || windowManager == null) {
@@ -136,7 +170,7 @@ final class TaskSwitcherOverlayController {
         mainHandler.removeCallbacksAndMessages(current);
         Runnable removal = () -> {
             try {
-                windowManager.removeViewImmediate(current);
+                windowManager.removeViewImmediate((View) current);
             } catch (Throwable error) {
                 Log.e("Cannot remove task switcher", error);
             } finally {
@@ -148,7 +182,7 @@ final class TaskSwitcherOverlayController {
         else removal.run();
     }
 
-    private void runOnViewThread(TaskSwitcherOverlayView current, Runnable action) {
+    private void runOnViewThread(Surface current, Runnable action) {
         if (!attached || current == null) return;
         Handler owner = current.getHandler();
         if (owner != null && owner.getLooper() != Looper.myLooper()) {
@@ -158,8 +192,8 @@ final class TaskSwitcherOverlayController {
         } else if (attached && view == current) action.run();
     }
 
-    private void cancelPendingMove(TaskSwitcherOverlayView current) {
-        if (current != null) current.removeCallbacks(deliverPendingMove);
+    private void cancelPendingMove(Surface current) {
+        if (current != null) current.getHandler().removeCallbacks(deliverPendingMove);
         synchronized (moveLock) {
             if (pendingMoveView == current) pendingMoveView = null;
             moveFrameScheduled = false;

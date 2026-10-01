@@ -19,6 +19,9 @@ import android.widget.TextView;
 import com.oxohang.fanfreeform.config.ConfigContract;
 import com.oxohang.fanfreeform.config.ConfigStore;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class TaskCenterSettingsActivity extends Activity {
     private ConfigStore store;
     private SharedPreferences prefs;
@@ -154,21 +157,30 @@ public final class TaskCenterSettingsActivity extends Activity {
         section.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 10));
         RadioGroup group = new RadioGroup(this);
         group.setOrientation(RadioGroup.VERTICAL);
-        RadioButton flat = radio("横向卡片 · 显示任务预览",
-                ConfigContract.SIDE_TASK_LAYOUT_FLAT);
-        RadioButton icons = radio("横向图标 · 只显示运行应用图标",
-                ConfigContract.SIDE_TASK_LAYOUT_ICONS);
-        group.addView(flat);
-        group.addView(icons);
+        int[] values = {ConfigContract.SIDE_TASK_LAYOUT_FLAT,
+                ConfigContract.SIDE_TASK_LAYOUT_ICONS,
+                ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST};
+        String[] labels = {"横向卡片 · 显示任务预览",
+                "横向图标 · 只显示运行应用图标",
+                "卡片列表 · 三星同款（纵向面板）"};
+        List<RadioButton> buttons = new ArrayList<>(values.length);
+        RadioButton checked = null;
         int current = prefs.getInt(ConfigContract.KEY_SIDE_TASK_LAYOUT_MODE,
                 ConfigContract.DEFAULT_SIDE_TASK_LAYOUT_MODE);
-        group.check(current == ConfigContract.SIDE_TASK_LAYOUT_ICONS
-                ? icons.getId() : flat.getId());
+        for (int i = 0; i < values.length; i++) {
+            RadioButton button = radio(labels[i], values[i]);
+            group.addView(button);
+            buttons.add(button);
+            if (values[i] == current) checked = button;
+        }
+        group.check(checked != null ? checked.getId() : buttons.get(0).getId());
         group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
-            int value = checkedId == icons.getId()
-                    ? ConfigContract.SIDE_TASK_LAYOUT_ICONS
-                    : ConfigContract.SIDE_TASK_LAYOUT_FLAT;
-            store.putInt(ConfigContract.KEY_SIDE_TASK_LAYOUT_MODE, value);
+            for (RadioButton button : buttons) {
+                if (button.getId() == checkedId) {
+                    store.putInt(ConfigContract.KEY_SIDE_TASK_LAYOUT_MODE,
+                            (Integer) button.getTag());
+                }
+            }
         });
         section.addView(group);
         return section;

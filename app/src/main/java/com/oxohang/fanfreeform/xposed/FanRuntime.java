@@ -104,6 +104,18 @@ final class FanRuntime {
     private volatile List<RuntimeTarget> pressureTargets = Collections.emptyList();
     private volatile Map<Integer, RuntimeTarget> pressureActionTargets = Collections.emptyMap();
     private List<RuntimeTarget> activeTargets = Collections.emptyList();
+    /** 列表打开这一刻的前台任务 id（分屏填充对面 stage 用；必须快照，不能启动时再读）。 */
+    private int foregroundTaskIdAtListOpen = -1;
+    /** 当前列表承载的任务集合，供「全部关闭」使用。 */
+    private volatile List<RecentTaskPreview> activeRecentTasks;
+    /** 第三档卡片列表的宿主是模块进程的 Activity，此处只记录它是否正在前台。 */
+    private volatile boolean taskListActivityShown;
+    /** 弹出视图请求的目标包（小窗启动是异步的，链路不依赖列表窗口存活）。 */
+    private volatile String pendingFreeformPackage;
+    /** SoSc 分屏控制器（系统原生 com.android.wm.shell.sosc.SoScSplitScreenController）。 */
+    private Object soScSplitController;
+    /** SoSc stage 协调器，用于运行期读 side stage 物理位置。 */
+    private Object soScStageCoordinator;
     private State state = State.IDLE;
     private volatile int configRetryCount;
     private volatile boolean configRetryScheduled;
@@ -844,9 +856,16 @@ final class FanRuntime {
     void adjustMiniTargetIfNeeded(int animationType, Object info, Object target) {
         freeform.adjustMiniTargetIfNeeded(animationType, info, target);
     }
-
     void adjustEdgePinRestoreTarget(Object info, Object target, Object transaction) {
         freeform.adjustEdgePinRestoreTarget(info, target, transaction);
+    }
+
+    void setSoScSplitController(Object controller) {
+        soScSplitController = controller;
+    }
+
+    void setSoScStageCoordinator(Object coordinator) {
+        soScStageCoordinator = coordinator;
     }
 
     boolean stabilizeLandscapeWindowShape(Object info) {
@@ -1717,6 +1736,13 @@ final class FanRuntime {
     }
 
     private void activateSideTasks(float x, float y) {
+        // 唤起列表的瞬间这里仍是「刚才的前台应用」，必须在切走前快照，
+        // 供分屏动作填充另一个 stage（见 SoSc startTask 语义）。
+        foregroundTaskIdAtListOpen = recentTaskRepository.foregroundTaskId();
+        if (config.sideTaskLayoutMode == ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST) {
+            activateTaskListActivity(x, y);
+            return;
+        }
         state = State.TASKS_LOADING;
         activeSideList = true;
         outsideCapture.remove();
@@ -1735,10 +1761,120 @@ final class FanRuntime {
         });
     }
 
+    /**
+     * 第三档（三星同款卡片列表）：交给模块进程的普通 Activity 承载。
+     *
+     * <p>本进程是 SystemUI 进程，{@code addView} 出来的任何窗口都是 overlay
+     * （实测不可聚焦），系统不会把它当"当前界面"收起；而 Activity 是应用窗口
+     * （ty=1 BASE_APPLICATION），返回键 / 上划回桌面 / 下拉状态栏覆盖全部由系统
+     * 原生生命周期处理，本模块一行关闭代码都不写。
+     *
+     * <p>数据必须先由本进程读好再交出去：模块进程没有 {@code GET_TASKS} 能力
+     * （连 CAP 位都是 0），它自己查只会得到空列表。快照走模块自己的
+     * ContentProvider（{@link TaskCenterIpc#publishTaskList}）。
+     */
+    private void activateTaskListActivity(float x, float y) {
+        state = State.TASKS;
+        activeSideList = false;
+        activeRecentTasks = null;
+        taskListActivityShown = false;
+        taskLoadCurrentX = x;
+        taskLoadCurrentY = y;
+        outsideGestures.clearAll();
+        // 捕获层此刻**不能**撤：列表窗口还没上屏，撤掉会让覆盖层抖一下、
+        // 且系统手势在这段空隙里会漏判。等 Activity 报告 onStart 再撤。
+        GestureConfig taskConfig = config;
+        configHandler.post(() -> {
+            // 在本进程（唯一有权限的一方）读任务列表，然后发布快照。
+            List<RecentTaskPreview> previews = recentTaskRepository.loadRunningTasks(
+                    taskConfig.sideTaskMaxCount, false);
+            TaskCenterIpc.publishTaskList(context, previews);
+            recentTaskRepository.release(previews);
+            mainHandler.post(() -> startTaskListActivity(taskConfig.sideTaskMaxCount));
+        });
+    }
+
+    private void startTaskListActivity(int maxCount) {
+        if (state != State.TASKS) return;
+        try {
+            Intent intent = new Intent();
+            // 包名必须写死为模块自身：本方法运行在 SystemUI 进程，
+            // context.getPackageName() 会返回 com.android.systemui，
+            // 用它拼组件名会抛 ActivityNotFoundException（设备实测）。
+            intent.setClassName(TaskCenterActionContract.HOST_PACKAGE,
+                    TaskCenterActionContract.LIST_ACTIVITY_CLASS);
+            intent.setAction(TaskCenterActionContract.ACTION_SHOW);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+            intent.putExtra(TaskCenterActionContract.EXTRA_MAX_COUNT, maxCount);
+            context.startActivity(intent);
+            Log.i("Task list activity requested max=" + maxCount
+                    + " foreground=" + foregroundTaskIdAtListOpen);
+        } catch (Throwable error) {
+            state = State.IDLE;
+            taskListActivityShown = false;
+            foregroundTaskIdAtListOpen = -1;
+            refreshOutsideCapture();
+            Log.e("Cannot start task list activity", error);
+            return;
+        }
+        if (config.haptic) vibrateTick();
+    }
+
+    /** 列表 Activity 报告窗口已显示：收起重叠其上的捕获层并把列表计入状态。 */
+    void onTaskListStarted() {
+        taskListActivityShown = true;
+        outsideCapture.remove();
+        outsideGestures.clearAll();
+        Log.i("Task list activity started; outside capture released");
+    }
+
+    /** 列表里选了「在分屏视图中打开」：SoSc 控制器只存在于本进程，必须在这里调。 */
+    void onTaskListSplitRequest(int taskId) {
+        if (taskId < 0) return;
+        Log.i("Task list split request task=" + taskId
+                + " foreground=" + foregroundTaskIdAtListOpen);
+        int remembered = foregroundTaskIdAtListOpen;
+        // 列表已自行关闭，快照用后即清；分屏动作本身就是"列表的终局"。
+        foregroundTaskIdAtListOpen = -1;
+        taskListActivityShown = false;
+        launchTaskInSplit(taskId, remembered);
+        mainHandler.postDelayed(this::refreshOutsideCapture, 800L);
+    }
+
+    /** 列表里选了「在弹出视图中打开」：走本进程已有的 MIUI 原生小窗链路。 */
+    void onTaskListFreeformRequest(String packageName) {
+        if (packageName == null || packageName.isEmpty()) return;
+        pendingFreeformPackage = packageName;
+        taskListActivityShown = false;
+        foregroundTaskIdAtListOpen = -1;
+        mainHandler.post(this::launchPendingFreeformPackage);
+    }
+
+    private void launchPendingFreeformPackage() {
+        String packageName = pendingFreeformPackage;
+        if (packageName == null) return;
+        pendingFreeformPackage = null;
+        try {
+            Intent intent = context.getPackageManager()
+                    .getLaunchIntentForPackage(packageName);
+            if (intent == null) {
+                Log.i("Freeform launch unavailable package=" + packageName);
+                return;
+            }
+            freeform.launchExternalIntent(packageName, intent, config,
+                    FanRuntime.this::refreshOutsideCapture);
+        } catch (Throwable error) {
+            Log.e("Cannot launch package in freeform package=" + packageName, error);
+        }
+    }
+
     private void showLoadedSideTasks(List<RecentTaskPreview> previews,
                                      GestureGeometry.Corner taskCorner,
                                      float anchorX, float anchorY,
                                      GestureConfig taskConfig, int generation) {
+        activeRecentTasks = null;
         if (state != State.TASKS_LOADING || generation != taskLoadGeneration) {
             recentTaskRepository.release(previews);
             return;
@@ -1749,15 +1885,34 @@ final class FanRuntime {
             refreshOutsideCapture();
             return;
         }
+        activeRecentTasks = previews;
         boolean shown = taskSwitcherOverlay.show(previews, taskCorner, anchorX, anchorY,
                 taskConfig,
                 new TaskSwitcherOverlayController.Listener() {
                     @Override public void onLaunch(RecentTaskPreview task) {
                         recentTaskRepository.launch(task);
+                        activeRecentTasks = null;
+                        if (state == State.TASKS) state = State.IDLE;
                         mainHandler.postDelayed(FanRuntime.this::refreshOutsideCapture, 500L);
                     }
 
+                    @Override public void onCloseTask(RecentTaskPreview task) {
+                        recentTaskRepository.removeTask(task.taskId);
+                    }
+
+                    @Override public void onCloseAll() {
+                        recentTaskRepository.removeAllTasks(activeRecentTasks);
+                    }
+
+                    @Override public void onListAction(int action, RecentTaskPreview task,
+                            RecentTaskRepository.ShortcutEntry shortcut) {
+                        handleListAction(action, task, shortcut);
+                    }
+
                     @Override public void onClosed() {
+                        activeRecentTasks = null;
+                        foregroundTaskIdAtListOpen = -1;
+                        if (state == State.TASKS) state = State.IDLE;
                         refreshOutsideCapture();
                     }
                 });
@@ -1766,9 +1921,116 @@ final class FanRuntime {
             taskSwitcherOverlay.externalMove(taskLoadCurrentX, taskLoadCurrentY);
             if (taskConfig.haptic) vibrateTick();
         } else {
+            activeRecentTasks = null;
+            foregroundTaskIdAtListOpen = -1;
             recentTaskRepository.release(previews);
             state = State.CANCELLED;
             refreshOutsideCapture();
+        }
+    }
+
+    /** 视差卡片模式菜单动作 → 系统原生接口。 */
+    private void handleListAction(int action, RecentTaskPreview task,
+                                  RecentTaskRepository.ShortcutEntry shortcut) {
+        switch (action) {
+            case TaskCenterListView.ACTION_FREEFORM:
+                if (task != null && task.packageName != null) {
+                    freeformTaskByPackage(task.packageName);
+                }
+                break;
+            case TaskCenterListView.ACTION_SPLIT:
+                if (task != null) {
+                    launchTaskInSplit(task.taskId, foregroundTaskIdAtListOpen);
+                    foregroundTaskIdAtListOpen = -1;
+                }
+                break;
+            case TaskCenterListView.ACTION_DETAILS:
+                if (task != null) recentTaskRepository.openAppDetails(task.packageName);
+                break;
+            case TaskCenterListView.ACTION_SHORTCUT:
+                recentTaskRepository.launchShortcut(shortcut);
+                break;
+            case TaskCenterListView.ACTION_SEARCH:
+                recentTaskRepository.openHomeSearch();
+                break;
+            case TaskCenterListView.ACTION_LOCK:
+                // OS1 未找到"锁定任务"的原生入口，此处不伪造实现。
+                Log.i("List action pending native entry on HyperOS OS1: lock");
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** 弹出视图（小窗）：复用 HyperOsFreeformBridge 既有的小窗启动链路（MIUI 原生体系）。 */
+    private void freeformTaskByPackage(String packageName) {
+        if (packageName == null || packageName.isEmpty()) return;
+        Intent intent = context.getPackageManager().getLaunchIntentForPackage(packageName);
+        if (intent == null) {
+            Log.i("Freeform launch unavailable package=" + packageName);
+            return;
+        }
+        freeform.launchExternalIntent(packageName, intent, config,
+                FanRuntime.this::refreshOutsideCapture);
+    }
+
+    /**
+     * 在分屏视图中打开：目标任务进 main stage，唤起列表时的前台应用进 side stage。
+     *
+     * <p>stage 语义为设备实测结论（不靠推断）：
+     * <ul>
+     *   <li>{@code startTask(taskId, position, options)}：{@code position==0 → SoScMainStage}，
+     *       {@code position==1 → SoScSideStage}</li>
+     *   <li>{@code SoScStageCoordinator.getSideStagePosition()} 返回 side stage 的物理位置
+     *       （0=top/left，1=bottom/right），用户可交换且系统记忆，物理位置必须运行期读</li>
+     * </ul>
+     *
+     * @param foregroundTaskId 唤起列表那一刻的前台任务 id（必须由调用方快照传入，
+     *                         不能在这里读实时前台：那时前台已变成列表自己）。
+     */
+    private void launchTaskInSplit(int taskId, int foregroundTaskId) {
+        Object controller = soScSplitController;
+        if (taskId < 0 || controller == null) {
+            Log.i("Split launch unavailable controller=" + (controller != null)
+                    + " task=" + taskId);
+            return;
+        }
+        try {
+            int sideStagePosition = 0;
+            Object coordinator = soScStageCoordinator;
+            if (coordinator != null) {
+                try {
+                    sideStagePosition = (int) XposedHelpers.callMethod(
+                            coordinator, "getSideStagePosition");
+                } catch (Throwable positionError) {
+                    Log.i("Split stage position unreadable error="
+                            + positionError.getClass().getSimpleName());
+                }
+            }
+            final int mainStagePosition = 0;
+            final int sideStagePositionArg = 1;
+            Log.i("Split launch target=" + taskId
+                    + " mainPosition=" + mainStagePosition
+                    + " sidePosition=" + sideStagePositionArg
+                    + " sideStagePhysical=" + sideStagePosition
+                    + " foreground=" + foregroundTaskId);
+            // 第一步：目标任务进 main stage。系统会自行带出分屏过渡。
+            XposedHelpers.callMethod(controller, "startTask", taskId,
+                    mainStagePosition, null);
+            // 第二步：把唤起列表时的前台应用放进 side stage。必须用快照而不是
+            // getTopFullScreenTask()：后者在此刻返回的就是目标任务自身，会导致
+            // 对面 stage 落空、系统塞入桌面。
+            if (foregroundTaskId >= 0 && foregroundTaskId != taskId) {
+                XposedHelpers.callMethod(controller, "startTask", foregroundTaskId,
+                        sideStagePositionArg, null);
+                Log.i("Split side stage filled with foreground task=" + foregroundTaskId);
+            } else {
+                Log.i("Split side stage left to system: foreground=" + foregroundTaskId
+                        + " target=" + taskId);
+            }
+        } catch (Throwable error) {
+            Log.i("Split launch threw id=" + taskId
+                    + " error=" + error.getClass().getSimpleName());
         }
     }
 
@@ -2270,6 +2532,14 @@ final class FanRuntime {
         if (hideOverlay && state == State.HONEYCOMB) honeycombOverlay.removeNow();
         if (hideOverlay && state == State.TASKS) taskSwitcherOverlay.removeNow();
         if (state == State.TASKS_LOADING) taskLoadGeneration++;
+        if (state == State.TASKS && taskListActivityShown) {
+            // 第三档列表是模块进程的 Activity，本进程不持有它的窗口句柄，
+            // 无法也不应替系统关闭它（那正是这次改造要避免的事）。
+            // 这里只记录状态归位；Activity 由系统自己的生命周期收走。
+            Log.i("Task list activity left to system lifecycle");
+        }
+        taskListActivityShown = false;
+        pendingFreeformPackage = null;
         gestureArbitrator.reset();
         sideGestureArbitrator.reset();
         gestureReplayGuard.reset();
@@ -3661,7 +3931,8 @@ final class FanRuntime {
                         + " bottomFreeform=" + next.bottomPortraitHoneycombFreeform + "/"
                         + next.bottomLandscapeHoneycombFreeform
                         + " blankSettle=" + next.bottomHoneycombSettleMs
-                        + "ms returnToFan=" + next.triggerPercent + "% outsideTap="
+                        + "ms returnToFan=" + next.triggerPercent + "% taskLayout="
+                        + next.sideTaskLayoutMode + " outsideTap="
                         + next.outsideTapWindowMs + "ms outside="
                         + next.outsidePortraitEnabled + "/"
                         + next.outsideLandscapeEnabled + " honeycombFollow="

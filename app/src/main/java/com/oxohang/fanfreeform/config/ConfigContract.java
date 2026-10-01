@@ -148,8 +148,19 @@ public final class ConfigContract {
     public static final String KEY_DIAGNOSTICS_MIUI_HOME = "diagnostics_miui_home";
     public static final String EXTRA_DIAGNOSTIC_PROCESS = "diagnostic_process";
     public static final String EXTRA_DIAGNOSTIC_TEXT = "diagnostic_text";
-    public static final String KEY_OUTSIDE_SINGLE_ACTION = "outside_single_action";
-    public static final String KEY_OUTSIDE_DOUBLE_ACTION = "outside_double_action";
+    /** 任务中心列表快照：SystemUI 进程写入、模块进程的列表 Activity 读取。 */
+    public static final String METHOD_REPORT_TASK_LIST = "report_task_list";
+    public static final String METHOD_GET_TASK_LIST = "get_task_list";
+    public static final String KEY_TASK_LIST = "task_list";
+    public static final String KEY_TASK_LIST_REQUEST = "task_list_request";
+    /** 任务列表快照的每项字段（与 RecentTaskPreview 一一对应）。 */
+    public static final String EXTRA_TASK_IDS = "task_ids";
+    public static final String EXTRA_TASK_PACKAGES = "task_packages";
+    public static final String EXTRA_TASK_LABELS = "task_labels";
+    public static final String EXTRA_TASK_LIST_TIME = "task_list_time";
+    /** 快照允许被消费的最大年龄：超过则视为过期，避免显示早已关闭的任务。 */
+    public static final long TASK_LIST_SNAPSHOT_MAX_AGE_MS = 2000L;
+    public static final String KEY_OUTSIDE_SINGLE_ACTION = "outside_single_action";    public static final String KEY_OUTSIDE_DOUBLE_ACTION = "outside_double_action";
     public static final String KEY_OUTSIDE_TAP_WINDOW_MS = "outside_tap_window_ms";
     public static final String KEY_OUTSIDE_ENABLED = "outside_enabled";
     public static final String KEY_OUTSIDE_PORTRAIT_ENABLED =
@@ -397,6 +408,8 @@ public final class ConfigContract {
     public static final int MAX_SIDE_TASK_FINGER_OFFSET_DP = 180;
     public static final int SIDE_TASK_LAYOUT_FLAT = 0;
     public static final int SIDE_TASK_LAYOUT_ICONS = 1;
+    /** 第三档：三星同款卡片列表。 */
+    public static final int SIDE_TASK_LAYOUT_SAMSUNG_LIST = 2;
     public static final int DEFAULT_SIDE_TASK_LAYOUT_MODE = SIDE_TASK_LAYOUT_FLAT;
     public static final boolean DEFAULT_SIDE_TASK_REVERSE_ORDER = false;
     public static final boolean DEFAULT_SIDE_TASK_SHOW_NAME = true;

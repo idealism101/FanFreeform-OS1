@@ -75,6 +75,18 @@
             android:name=".ui.TaskCenterAnimationSettingsActivity"
             android:exported="false" />
 
+        <!-- 任务中心卡片列表宿主：必须是普通 Activity（应用窗口），
+             系统才会把它当"当前界面"管理其生命周期。由 SystemUI 进程内的
+             模块运行时显式拉起（excludeFromRecents，不出现在任务列表里）。 -->
+        <activity
+            android:name=".xposed.TaskCenterListActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <activity android:name=".ui.GeneralSettingsActivity" android:exported="false" />
         <activity android:name=".ui.WindowSettingsActivity" android:exported="false" />
         <activity android:name=".ui.OutsideSettingsActivity" android:exported="false" />
