@@ -54,6 +54,10 @@ import de.robv.android.xposed.XposedHelpers;
 final class FanRuntime {
     private static final float BOTTOM_HONEYCOMB_SETTLE_DP = 8f;
     private static final float BOTTOM_HONEYCOMB_FAN_GAP_DP = 10f;
+    /** 列表态下，判定"底部上划"的起始热区高度：距屏幕底边该距离内算起点在底部。 */
+    private static final float BOTTOM_SWIPE_START_ZONE_DP = 96f;
+    /** 列表态下，纵向位移超过该距离且明显大于横向，判定为一次底部上划。 */
+    private static final float BOTTOM_SWIPE_MIN_DISTANCE_DP = 48f;
     private static final long PRESSURE_CANDIDATE_TIMEOUT_MS = 5000L;
     private static final long PRESSURE_SELECTION_SENSOR_IDLE_MS = 180L;
     private static final long PRESSURE_CALIBRATION_INACTIVITY_TIMEOUT_MS = 120_000L;
@@ -106,6 +110,10 @@ final class FanRuntime {
     private List<RuntimeTarget> activeTargets = Collections.emptyList();
     /** 列表打开这一刻的前台任务 id（分屏填充对面 stage 用；必须快照，不能启动时再读）。 */
     private int foregroundTaskIdAtListOpen = -1;
+    /** 列表态下的底部上划检测：起点 y / 起点 x / 是否已进入上划候选。 */
+    private float bottomSwipeDownY;
+    private float bottomSwipeDownX;
+    private boolean bottomSwipeArmed;
     /** 当前列表承载的任务集合，供「全部关闭」使用。 */
     private volatile List<RecentTaskPreview> activeRecentTasks;
     /** 第三档卡片列表的宿主是模块进程的 Activity，此处只记录它是否正在前台。 */
@@ -656,6 +664,10 @@ final class FanRuntime {
 
     void onTaskAppeared(int taskId) {
         freeform.onTaskAppeared(taskId);
+        // 小窗（freeform）出现即代表前台场景已经切换，任务列表必须立刻退场：
+        // 否则列表会浮在小窗之上，或与小窗争夺同一片屏幕区域。
+        // 与系统面板展开走同一条主动关闭通路（瞬时 removeView，不走系统过渡）。
+        dismissTaskSurfaceForForegroundChange("freeform task appeared");
         mainHandler.postDelayed(this::refreshOutsideCapture, 60L);
     }
 
@@ -831,6 +843,39 @@ final class FanRuntime {
         Log.i("Outside capture paused at " + source + " touch down");
     }
 
+    /**
+     * 前台场景发生变化（系统面板展开 / 小窗出现 / 上划等）时，撤走任务表面。
+     *
+     * <p>这是复刻传送门交互范式的关键一步：**不由系统生命周期代劳，而是本进程
+     * 观测到信号后主动、瞬时地关闭**。好处有三个：
+     * <ul>
+     *   <li>关闭动作是外加的 {@code removeViewImmediate}，不走系统 task 过渡，
+     *       没有过渡期卡顿（上划卡顿的根源正在于此）；</li>
+     *   <li>关闭时机由信号决定，不依赖系统把谁提到前台，因此不会出现
+     *       "上划后露出的是下面的 App"这种观感问题；</li>
+     *   <li>状态归位同步完成（{@link #resetFan(boolean)}），下一次呼出不会残留。</li>
+     * </ul>
+     * 覆盖档位：视差卡片与第三档卡片列表共用同一表面控制器，一并收起。
+     */
+    private void dismissTaskSurfaceForForegroundChange(String reason) {
+        // 判据必须落在「窗口是否真的在屏幕上」，不能落在 state：
+        // 侧边栏拉出列表后手指抬起即走 ACTION_UP → resetFan(false)，state 会回到 IDLE，
+        // 但列表窗口被刻意保留（hideOverlay=false，抬手后可继续点击）。
+        // 若此处用 state==TASKS 判定，从那一刻起所有关闭信号都会被判为"无需处理"，
+        // 列表变成关不掉的僵尸层 —— 这正是此前「上划/开小窗/下拉都不生效」的根因。
+        if (!taskSwitcherOverlay.isAttached()) {
+            Log.i("Task surface dismiss ignored (not attached) reason=" + reason
+                    + " state=" + state);
+            return;
+        }
+        taskSwitcherOverlay.removeNow();
+        boolean wasTasks = state == State.TASKS;
+        // 僵尸态（列表在场但 state 已归位）也要清一遍手势标志，否则残留状态会影响下次呼出。
+        resetFan(false);
+        Log.i("Task surface dismissed: " + reason + " wasTasks=" + wasTasks
+                + " state=" + state);
+    }
+
     private void applySystemPanelCaptureState(String source) {
         if (shadeExpanded || controlCenterExpanded) {
             cancelPressureGesture();
@@ -842,6 +887,10 @@ final class FanRuntime {
             outsideCapture.remove();
             honeycombOverlay.setPaused(true);
             outsideGestures.clearAll();
+            // 系统面板（下拉通知栏 / 控制中心）展开即代表"用户要去做别的事了"：
+            // 任务列表必须立刻撤走，不能等系统过渡慢慢压下去。
+            // 这一步是传送门范式的核心 —— 关闭时机由我们自己掌握，动作瞬时完成。
+            dismissTaskSurfaceForForegroundChange("system panel " + source);
             Log.i("Outside capture paused while " + source + " is expanded");
         } else {
             syncPressureDebugOverlay();
@@ -1054,6 +1103,35 @@ final class FanRuntime {
                 resetFan(false);
             }
             return;
+        }
+        // 底部上划检测：列表窗口在场即生效，**不依赖 state**。
+        //
+        // 为什么不能挂在 state==TASKS 上：侧边栏拉出列表后手指抬起就走 ACTION_UP，
+        // 该分支会把 state 归位到 IDLE（列表窗口被刻意保留，抬手后仍可点击）。
+        // 若判定依赖 state，抬手之后的所有上划都会落进 IDLE 分支被 1128 行拦掉，
+        // 表现就是「上划对列表毫无反应」。
+        //
+        // 判据保留保守版：起点贴近屏幕底边 + 纵向位移明显大于横向，
+        // 避免与横向滑动选择卡片冲突。
+        if (taskSwitcherOverlay.isVisible()) {
+            if (action == MotionEvent.ACTION_DOWN) {
+                bottomSwipeDownY = y;
+                bottomSwipeDownX = x;
+                bottomSwipeArmed = y >= height - BOTTOM_SWIPE_START_ZONE_DP * density;
+            } else if (bottomSwipeArmed && action == MotionEvent.ACTION_MOVE) {
+                float dy = bottomSwipeDownY - y;
+                float dx = Math.abs(x - bottomSwipeDownX);
+                if (dy > BOTTOM_SWIPE_MIN_DISTANCE_DP * density && dy > dx * 1.5f) {
+                    bottomSwipeArmed = false;
+                    Log.i("Bottom swipe-up dismissed task surface dy=" + (int) dy);
+                    dismissTaskSurfaceForForegroundChange("bottom swipe-up");
+                    return;
+                }
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                bottomSwipeArmed = false;
+            }
+        } else {
+            bottomSwipeArmed = false;
         }
         if (honeycombOverlay.isVisible() || taskSwitcherOverlay.isVisible()) return;
         if (wheelSessionActive || overlay.isWheelVisible()) return;
@@ -1739,10 +1817,6 @@ final class FanRuntime {
         // 唤起列表的瞬间这里仍是「刚才的前台应用」，必须在切走前快照，
         // 供分屏动作填充另一个 stage（见 SoSc startTask 语义）。
         foregroundTaskIdAtListOpen = recentTaskRepository.foregroundTaskId();
-        if (config.sideTaskLayoutMode == ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST) {
-            activateTaskListActivity(x, y);
-            return;
-        }
         state = State.TASKS_LOADING;
         activeSideList = true;
         outsideCapture.remove();
@@ -1762,72 +1836,18 @@ final class FanRuntime {
     }
 
     /**
-     * 第三档（三星同款卡片列表）：交给模块进程的普通 Activity 承载。
+     * 任务列表（含第三档卡片列表）统一走本进程的 overlay 承载。
      *
-     * <p>本进程是 SystemUI 进程，{@code addView} 出来的任何窗口都是 overlay
-     * （实测不可聚焦），系统不会把它当"当前界面"收起；而 Activity 是应用窗口
-     * （ty=1 BASE_APPLICATION），返回键 / 上划回桌面 / 下拉状态栏覆盖全部由系统
-     * 原生生命周期处理，本模块一行关闭代码都不写。
-     *
-     * <p>数据必须先由本进程读好再交出去：模块进程没有 {@code GET_TASKS} 能力
-     * （连 CAP 位都是 0），它自己查只会得到空列表。快照走模块自己的
-     * ContentProvider（{@link TaskCenterIpc#publishTaskList}）。
+     * <p>历史注记：第三档曾改为「模块进程的普通 Activity + 系统生命周期收起」，
+     * 实测两个不可接受缺陷 —— ① 应用窗口独占，呼出时屏幕变成"独立列表界面"
+     * 而非浮层；② 上划走系统 task 过渡，明显卡顿。故改回 overlay，
+     * 关闭由 {@link TaskSwitcherOverlayController} 瞬时 removeView 完成。
+     * 相关 Activity 类保留未删，但不再参与任何档位。
      */
-    private void activateTaskListActivity(float x, float y) {
-        state = State.TASKS;
-        activeSideList = false;
-        activeRecentTasks = null;
-        taskListActivityShown = false;
-        taskLoadCurrentX = x;
-        taskLoadCurrentY = y;
-        outsideGestures.clearAll();
-        // 捕获层此刻**不能**撤：列表窗口还没上屏，撤掉会让覆盖层抖一下、
-        // 且系统手势在这段空隙里会漏判。等 Activity 报告 onStart 再撤。
-        GestureConfig taskConfig = config;
-        configHandler.post(() -> {
-            // 在本进程（唯一有权限的一方）读任务列表，然后发布快照。
-            List<RecentTaskPreview> previews = recentTaskRepository.loadRunningTasks(
-                    taskConfig.sideTaskMaxCount, false);
-            TaskCenterIpc.publishTaskList(context, previews);
-            recentTaskRepository.release(previews);
-            mainHandler.post(() -> startTaskListActivity(taskConfig.sideTaskMaxCount));
-        });
-    }
-
-    private void startTaskListActivity(int maxCount) {
-        if (state != State.TASKS) return;
-        try {
-            Intent intent = new Intent();
-            // 包名必须写死为模块自身：本方法运行在 SystemUI 进程，
-            // context.getPackageName() 会返回 com.android.systemui，
-            // 用它拼组件名会抛 ActivityNotFoundException（设备实测）。
-            intent.setClassName(TaskCenterActionContract.HOST_PACKAGE,
-                    TaskCenterActionContract.LIST_ACTIVITY_CLASS);
-            intent.setAction(TaskCenterActionContract.ACTION_SHOW);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_NO_ANIMATION
-                    | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-            intent.putExtra(TaskCenterActionContract.EXTRA_MAX_COUNT, maxCount);
-            context.startActivity(intent);
-            Log.i("Task list activity requested max=" + maxCount
-                    + " foreground=" + foregroundTaskIdAtListOpen);
-        } catch (Throwable error) {
-            state = State.IDLE;
-            taskListActivityShown = false;
-            foregroundTaskIdAtListOpen = -1;
-            refreshOutsideCapture();
-            Log.e("Cannot start task list activity", error);
-            return;
-        }
-        if (config.haptic) vibrateTick();
-    }
-
-    /** 列表 Activity 报告窗口已显示：收起重叠其上的捕获层并把列表计入状态。 */
     void onTaskListStarted() {
-        taskListActivityShown = true;
-        outsideCapture.remove();
-        outsideGestures.clearAll();
-        Log.i("Task list activity started; outside capture released");
+        // 旧 Activity 通道的回调，保留为无操作占位：外部（TaskCenterActionReceiver）
+        // 仍可能收到历史广播，这里不再做任何状态变更。
+        Log.i("Task list activity channel is retired; overlay path is in use");
     }
 
     /** 列表里选了「在分屏视图中打开」：SoSc 控制器只存在于本进程，必须在这里调。 */
@@ -2532,12 +2552,6 @@ final class FanRuntime {
         if (hideOverlay && state == State.HONEYCOMB) honeycombOverlay.removeNow();
         if (hideOverlay && state == State.TASKS) taskSwitcherOverlay.removeNow();
         if (state == State.TASKS_LOADING) taskLoadGeneration++;
-        if (state == State.TASKS && taskListActivityShown) {
-            // 第三档列表是模块进程的 Activity，本进程不持有它的窗口句柄，
-            // 无法也不应替系统关闭它（那正是这次改造要避免的事）。
-            // 这里只记录状态归位；Activity 由系统自己的生命周期收走。
-            Log.i("Task list activity left to system lifecycle");
-        }
         taskListActivityShown = false;
         pendingFreeformPackage = null;
         gestureArbitrator.reset();

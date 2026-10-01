@@ -8,15 +8,32 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 
+import com.oxohang.fanfreeform.config.ConfigContract;
+
 import java.util.List;
 
 /**
  * 任务中心承载层：按设置的任务布局档位选择视图，并统一管理窗口生命周期。
  *
- * <p>第三档（三星同款卡片列表）**不在这里**：列表必须是普通应用窗口才能被系统
- * 当"当前界面"收起，而本类是 overlay 承载层（ty=2038，系统窗口层实测不可聚焦），
- * 因此卡片列表交给模块进程的 {@code TaskCenterListActivity}。
- * 本类只承载视差卡片（第一/第二档）。
+ * <p><b>所有档位（含第三档卡片列表）都由本类以 overlay 承载</b>（ty=2038）。
+ * 这是刻意选择的行为范式，原型是系统「传送门」面板：
+ * <ul>
+ *   <li>窗口"浮"在当前应用之上，**不改变当前界面身份**（不像 Activity 那样独占、
+ *       把下面的应用压掉，用户看到的就是"单独一个界面"）；</li>
+ *   <li>带 {@code FLAG_WATCH_OUTSIDE_TOUCH} 收 {@code ACTION_OUTSIDE}，点外部即关
+ *       —— 与传送门同款机制，且这是公开 API，无需特权权限；</li>
+ *   <li>关闭是 {@code removeViewImmediate}，**瞬时干脆**，不走系统 task 过渡
+ *       （系统过渡又慢又卡，实测是上划卡顿的根源）；</li>
+ *   <li>"该被系统收起"的联动（下拉通知栏/控制中心/上划/开小窗）由 FanRuntime
+ *       订阅系统信号后调 {@link #dismiss()} / {@link #removeNow()}，
+ *       关闭时机由我们自己掌握。</li>
+ * </ul>
+ *
+ * <p>历史注记：第三档曾一度改为模块进程的 {@code TaskCenterListActivity}
+ * （普通应用窗口，交给系统生命周期收起）。实测该方案有两个不可接受的缺陷：
+ * ① 呼出时屏幕会切成一个"独立的列表界面"（应用窗口独占），不是浮层观感；
+ * ② 上划时走系统 task 过渡，明显卡顿。故改回 overlay。
+ * Activity 相关类保留未删，但不再参与第三档。
  */
 final class TaskSwitcherOverlayController {
     /** 任务中心视差卡片对控制器的统一表面。 */
@@ -74,9 +91,14 @@ final class TaskSwitcherOverlayController {
                  GestureConfig config, Listener listener) {
         removeNow();
         if (windowManager == null || tasks == null || tasks.isEmpty()) return false;
-        Surface next = createCardSurface(tasks, corner, anchorX, anchorY, config, listener);
+        // 第三档（三星同款卡片列表）用独立的列表表面；其余档位用视差卡片。
+        Surface next = config.sideTaskLayoutMode == ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST
+                ? createListSurface(tasks, config, listener)
+                : createCardSurface(tasks, corner, anchorX, anchorY, config, listener);
         Log.i("Task switcher surface layout=" + config.sideTaskLayoutMode
-                + " tasks=" + tasks.size() + " kind=card");
+                + " tasks=" + tasks.size()
+                + " kind=" + (config.sideTaskLayoutMode
+                        == ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST ? "list" : "card"));
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 windowManager.getCurrentWindowMetrics().getBounds().height(),
@@ -126,6 +148,46 @@ final class TaskSwitcherOverlayController {
         return card;
     }
 
+    /**
+     * 第三档：三星同款卡片列表（{@link TaskCenterListView}）。
+     *
+     * <p>该视图已实现 {@link Surface}，与卡片共用同一套窗口生命周期与关闭通路：
+     * 点外部 / 面板展开 / 上划 / 开小窗统一收敛到 {@link #dismiss()} 或
+     * {@link #removeNow()}，视图自身只负责界面与点击分派。
+     */
+    private Surface createListSurface(List<RecentTaskPreview> tasks,
+                                      GestureConfig config, Listener listener) {
+        TaskCenterListView list = new TaskCenterListView(context);
+        list.configure(tasks, config, new TaskCenterListView.Listener() {
+            @Override public void onLaunch(RecentTaskPreview task) {
+                removeNow();
+                listener.onLaunch(task);
+            }
+
+            @Override public void onCloseTask(RecentTaskPreview task) {
+                listener.onCloseTask(task);
+            }
+
+            @Override public void onCloseAll() {
+                listener.onCloseAll();
+            }
+
+            @Override public void onListAction(int action, RecentTaskPreview task,
+                                               RecentTaskRepository.ShortcutEntry shortcut) {
+                // 动作类条目（分屏/小窗/详情/快捷方式/搜索）都是"面板的终局"：
+                // 先撤窗口再派发，避免动作执行期间列表仍浮在上面。
+                removeNow();
+                listener.onListAction(action, task, shortcut);
+            }
+
+            @Override public void onClosed() {
+                removeNow();
+                listener.onClosed();
+            }
+        });
+        return list;
+    }
+
     boolean isVisible() { return attached && view != null; }
 
     void externalMove(float x, float y) {
@@ -156,6 +218,11 @@ final class TaskSwitcherOverlayController {
     void dismiss() {
         Surface current = view;
         runOnViewThread(current, current::playDismissal);
+    }
+
+    /** 供诊断用：窗口当前是否挂在 WindowManager 上。 */
+    boolean isAttached() {
+        return attached && view != null;
     }
 
     void removeNow() {
