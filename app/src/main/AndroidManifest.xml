@@ -3,6 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 应用锁定状态存在 Settings.System 的 locked_apps 键（系统权威源头）。
+         读不需要权限，写需要 WRITE_SETTINGS —— 运行时宿主 SystemUI 本身已持有
+         （实测 granted=true），这里声明是为了让模块进程的同一份代码也成立。 -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <package android:name="com.android.systemui" />
