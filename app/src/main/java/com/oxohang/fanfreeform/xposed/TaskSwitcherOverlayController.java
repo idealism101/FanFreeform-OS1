@@ -53,6 +53,7 @@ final class TaskSwitcherOverlayController {
         void onCloseAll();
         void onListAction(int action, RecentTaskPreview task,
                           RecentTaskRepository.ShortcutEntry shortcut);
+        void onToggleLock(RecentTaskPreview task, boolean shouldLock);
         void onClosed();
     }
 
@@ -89,11 +90,20 @@ final class TaskSwitcherOverlayController {
     boolean show(List<RecentTaskPreview> tasks, GestureGeometry.Corner corner,
                  float anchorX, float anchorY,
                  GestureConfig config, Listener listener) {
+        return show(tasks, corner, anchorX, anchorY, config, listener, null);
+    }
+
+    /**
+     * @param lockedApps 锁定状态源，可为 null。由 FanRuntime 持有并注入，生命周期跨多次呼出。
+     */
+    boolean show(List<RecentTaskPreview> tasks, GestureGeometry.Corner corner,
+                 float anchorX, float anchorY,
+                 GestureConfig config, Listener listener, LockedAppStore lockedApps) {
         removeNow();
         if (windowManager == null || tasks == null || tasks.isEmpty()) return false;
         // 第三档（三星同款卡片列表）用独立的列表表面；其余档位用视差卡片。
         Surface next = config.sideTaskLayoutMode == ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST
-                ? createListSurface(tasks, config, listener)
+                ? createListSurface(tasks, corner, anchorX, anchorY, config, listener, lockedApps)
                 : createCardSurface(tasks, corner, anchorX, anchorY, config, listener);
         Log.i("Task switcher surface layout=" + config.sideTaskLayoutMode
                 + " tasks=" + tasks.size()
@@ -136,8 +146,10 @@ final class TaskSwitcherOverlayController {
         card.configure(tasks, corner, anchorX, anchorY, config,
                 new TaskSwitcherOverlayView.Listener() {
                     @Override public void onLaunch(RecentTaskPreview task) {
-                        removeNow();
+                        // 与列表档位同一条「让位」语义：动作立刻派发，
+                        // 卡片走它自带的淡出，不再瞬间撤窗。
                         listener.onLaunch(task);
+                        playExit(card, TaskCenterListView.EXIT_YIELD);
                     }
 
                     @Override public void onClosed() {
@@ -156,12 +168,17 @@ final class TaskSwitcherOverlayController {
      * {@link #removeNow()}，视图自身只负责界面与点击分派。
      */
     private Surface createListSurface(List<RecentTaskPreview> tasks,
-                                      GestureConfig config, Listener listener) {
+                                      GestureGeometry.Corner corner,
+                                      float anchorX, float anchorY,
+                                      GestureConfig config, Listener listener,
+                                      LockedAppStore lockedApps) {
         TaskCenterListView list = new TaskCenterListView(context);
-        list.configure(tasks, config, new TaskCenterListView.Listener() {
+        list.configure(tasks, corner, anchorX, anchorY, config, new TaskCenterListView.Listener() {
             @Override public void onLaunch(RecentTaskPreview task) {
-                removeNow();
+                // 让位：动作立刻派发（点下去就有反应），窗口等让位动画走完，
+                // 由视图回调 onClosed 再撤 —— 不再"点一下就瞬间消失"。
                 listener.onLaunch(task);
+                playExit(list, TaskCenterListView.EXIT_YIELD);
             }
 
             @Override public void onCloseTask(RecentTaskPreview task) {
@@ -170,22 +187,79 @@ final class TaskSwitcherOverlayController {
 
             @Override public void onCloseAll() {
                 listener.onCloseAll();
+                playExit(list, TaskCenterListView.EXIT_YIELD);
             }
 
             @Override public void onListAction(int action, RecentTaskPreview task,
                                                RecentTaskRepository.ShortcutEntry shortcut) {
-                // 动作类条目（分屏/小窗/详情/快捷方式/搜索）都是"面板的终局"：
-                // 先撤窗口再派发，避免动作执行期间列表仍浮在上面。
-                removeNow();
                 listener.onListAction(action, task, shortcut);
+                playExit(list, TaskCenterListView.EXIT_YIELD);
+            }
+
+            @Override public void onToggleLock(RecentTaskPreview task, boolean shouldLock) {
+                // 锁定不关列表：它像开关，用户会想连着锁好几个应用，关掉反而碍事。
+                listener.onToggleLock(task, shouldLock);
             }
 
             @Override public void onClosed() {
                 removeNow();
                 listener.onClosed();
             }
-        });
+        }, lockedApps);
         return list;
+    }
+
+    /**
+     * 按出场因果退场：列表播完动画再回调 {@code onClosed} 撤窗口；
+     * 其余档位沿用原来的瞬时移除。
+     *
+     * <p>兜底：动画结束回调若因任何原因丢失，全屏 overlay 会一直挂在屏幕上
+     * （整个屏幕不可用），所以在预期时长后补一刀移除。正常路径下窗口早已撤掉，
+     * 这里的 {@code view == current} 判断会让兜底自然落空。
+     */
+    void playExit(Surface current, int exitReason) {
+        if (current instanceof TaskCenterListView) {
+            TaskCenterListView list = (TaskCenterListView) current;
+            runOnViewThread(current, () -> list.playExit(exitReason, 0f));
+        } else if (attached && view == current) {
+            // 视差卡片档位没有自定义的四层出场，沿用视图自带淡出表达「退走」，
+            // 避免"列表有退场、卡片瞬间消失"的不一致。
+            runOnViewThread(current, current::playDismissal);
+        } else {
+            removeNow();
+            return;
+        }
+        mainHandler.postDelayed(() -> {
+            if (view == current) removeNow();
+        }, 900L);
+    }
+
+    void playExit(int exitReason) {
+        playExit(view, exitReason);
+    }
+
+    /** 系统面板展开：退位但不销毁，收起后原样弹回（{@link TaskCenterListView#setPaused}）。 */
+    void setPaused(boolean paused) {
+        Surface current = view;
+        if (!(current instanceof TaskCenterListView)) return;
+        TaskCenterListView list = (TaskCenterListView) current;
+        runOnViewThread(current, () -> list.setPaused(paused));
+    }
+
+    /** 侧边返回手势跟手：把进度透传给列表面板（见 {@link TaskCenterListView#setBackYieldProgress}）。 */
+    void setBackYield(float progress, boolean fromLeft) {
+        Surface current = view;
+        if (!(current instanceof TaskCenterListView)) return;
+        TaskCenterListView list = (TaskCenterListView) current;
+        runOnViewThread(current, () -> list.setBackYieldProgress(progress, fromLeft));
+    }
+
+    /** 侧边返回手势收尾：返回没触发时弹回原位（触发时由 FanRuntime 走让位退场）。 */
+    void releaseBackYield() {
+        Surface current = view;
+        if (!(current instanceof TaskCenterListView)) return;
+        TaskCenterListView list = (TaskCenterListView) current;
+        runOnViewThread(current, () -> list.releaseBackYield());
     }
 
     boolean isVisible() { return attached && view != null; }

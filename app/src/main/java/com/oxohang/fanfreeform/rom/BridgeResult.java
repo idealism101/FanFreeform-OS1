@@ -69,11 +69,6 @@ public final class BridgeResult<T> {
         return cause;
     }
 
-    /** 取结果值，失败时返回 fallback，便于写降级逻辑。 */
-    public T orElse(T fallback) {
-        return code == Code.OK ? value : fallback;
-    }
-
     @Override public String toString() {
         return "BridgeResult{" + code + (detail == null ? "" : " detail=" + detail) + "}";
     }

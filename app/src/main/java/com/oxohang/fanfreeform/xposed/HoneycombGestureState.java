@@ -3,12 +3,6 @@ package com.oxohang.fanfreeform.xposed;
 final class HoneycombGestureState {
     private boolean active;
 
-    boolean shouldEnter(float distance, float threshold) {
-        if (active || distance < threshold) return false;
-        active = true;
-        return true;
-    }
-
     void enter() { active = true; }
 
     boolean shouldExit(float distance, float returnThreshold) {

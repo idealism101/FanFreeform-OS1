@@ -37,11 +37,7 @@ public final class Os1Capabilities {
     public boolean hasFreeformPinHandler() { return freeformPinHandler != null; }
     public boolean hasFreeformAnimation() { return freeformAnimation != null; }
     public boolean hasControlCenter() { return controlCenter != null; }
-    public boolean hasNotificationShade() { return notificationShade != null; }
-    public boolean hasGestureObserver() { return gestureObserver != null; }
     public boolean hasRecentsContainer() { return recentsContainer != null; }
-    public boolean hasShellEventController() { return shellEventController != null; }
-    public boolean hasSystemGestureView() { return systemGestureView != null; }
 
     /** 日志/兼容报告友好的单行描述。 */
     public String describe() {

@@ -112,11 +112,6 @@ public final class RomBridge {
         return input;
     }
 
-    /** 便于在 hook 层登记 SystemUI 解析出的 freeform 控制器实例。 */
-    void bindFreeformControllerInstance(Object instance) {
-        freeform.registerControllerInstance(instance);
-    }
-
     // ------------------------------------------------------------------
     // OS1 实现。实现类持有的是 capabilities 快照与 ClassLoader，不硬编码 ROM 分支。
     // ------------------------------------------------------------------

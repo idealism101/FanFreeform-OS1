@@ -36,13 +36,9 @@ public final class BridgeLog {
         }
     };
 
-    private static volatile Sink sink = DEFAULT;
+    private static final Sink sink = DEFAULT;
 
     private BridgeLog() { }
-
-    public static void setSink(Sink custom) {
-        sink = custom == null ? DEFAULT : custom;
-    }
 
     public static void i(String message) {
         try {

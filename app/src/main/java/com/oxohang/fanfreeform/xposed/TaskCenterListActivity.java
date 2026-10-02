@@ -76,7 +76,9 @@ public final class TaskCenterListActivity extends Activity {
             return;
         }
         listView = new TaskCenterListView(this);
-        listView.configure(previews, GestureConfig.defaults(),
+        // 本 Activity 已废弃（不再参与任何档位），锚点给默认值即可。
+        listView.configure(previews, GestureGeometry.Corner.LEFT, 0f, 0f,
+                GestureConfig.defaults(),
                 new TaskCenterListView.Listener() {
                     @Override public void onLaunch(RecentTaskPreview task) {
                         repository.launch(task);
@@ -94,6 +96,15 @@ public final class TaskCenterListActivity extends Activity {
                     @Override public void onListAction(int action, RecentTaskPreview task,
                                                        RecentTaskRepository.ShortcutEntry shortcut) {
                         handleListAction(action, task, shortcut);
+                    }
+
+                    @Override public void onToggleLock(RecentTaskPreview task, boolean shouldLock) {
+                        // 本 Activity 属废弃承载路径（不参与任何档位），锁定只在
+                        // overlay 承载的 {@link TaskCenterListView} 上开放 —— 那里由
+                        // FanRuntime 注入 LockedAppStore。此处显式不做，避免出现
+                        // "两条路径行为不一致"的隐性分歧。
+                        Log.i("Lock toggle unsupported on activity host pkg="
+                                + (task == null ? "null" : task.packageName));
                     }
 
                     @Override public void onClosed() {

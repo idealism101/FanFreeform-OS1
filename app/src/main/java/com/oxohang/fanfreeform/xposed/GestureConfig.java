@@ -874,10 +874,6 @@ final class GestureConfig {
         return result;
     }
 
-    boolean ready() {
-        return enabled && targets.size() >= 3;
-    }
-
     boolean bottomEnabledFor(boolean landscape) {
         return landscape ? bottomLandscapeEnabled : bottomPortraitEnabled;
     }

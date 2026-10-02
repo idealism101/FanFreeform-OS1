@@ -18,6 +18,7 @@ import android.view.WindowInsets;
 
 import java.util.Collections;
 import java.util.List;
+import com.oxohang.fanfreeform.ui.Ui;
 
 final class FanOverlayView extends View {
     interface TouchListener {
@@ -26,9 +27,22 @@ final class FanOverlayView extends View {
         void onSelectionChanged(int index);
     }
 
+    /**
+     * 选中环与图标外缘的间距（dp）：两条绘制路径（扇形 / 侧边环形列表）必须同一档，
+     * 此前是 6dp 与 5dp 两档，同一时刻只会看到一条、但两处观感不一致。
+     */
+    private static final float SELECTION_RING_GAP_DP = 6f;
+    /**
+     * 焦点态：已经有选中项时，其余图标退后一档（直径 ×0.94）。
+     *
+     * <p>苹果的做法是"焦点吸睛靠非焦点后退"，而不是给焦点继续加装饰 ——
+     * 给选中项叠高光 / 发光只会让整屏变吵。这里只用一个乘法，
+     * 配合已有的放大（selectionScale）+ 强调环，焦点自然跳出来。
+     */
+    private static final float FOCUS_RECEDE = 0.94f;
+
     private final Paint backdrop = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint iconShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint iconStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint selectedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint selectedFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -83,22 +97,20 @@ final class FanOverlayView extends View {
 
     FanOverlayView(Context context) {
         super(context);
+        // 图标垫圈：只用一层淡投影把图标从任意 App 画面上分离出来，是"看得清"的手段，
+        // 不是装饰 —— 白色的内描边高光（拟物遗留）已删除，焦点交给"放大 + 强调环"。
         iconShadowPaint.setColor(0x01000000);
         iconShadowPaint.setShadowLayer(dp(9), 0, dp(3), 0x5c000000);
-        iconStrokePaint.setStyle(Paint.Style.STROKE);
-        iconStrokePaint.setStrokeWidth(dp(1));
-        iconStrokePaint.setColor(0x88ffffff);
-        selectedPaint.setColor(0xff6572f6);
+        selectedPaint.setColor(Ui.ACCENT);
         selectedPaint.setStyle(Paint.Style.STROKE);
         selectedPaint.setStrokeWidth(dp(3));
-        selectedPaint.setShadowLayer(dp(10), 0, dp(3), 0x52000000);
-        selectedFillPaint.setColor(0x386572f6);
+        selectedFillPaint.setColor(Ui.OVERLAY_ACCENT_FILL);
         textPaint.setColor(Color.WHITE);
         textPaint.setTextSize(dp(14));
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setFakeBoldText(true);
-        pillPaint.setColor(0xdd20263f);
-        railPaint.setColor(0xb820263f);
+        pillPaint.setColor(Ui.OVERLAY_PLATE);
+        railPaint.setColor(Ui.OVERLAY_RAIL);
         railPaint.setShadowLayer(dp(14), 0, dp(4), 0x50000000);
     }
 
@@ -367,7 +379,7 @@ final class FanOverlayView extends View {
             boolean active = i == selected;
             float pop = selectionPop(i, now);
             if (pop > 1f || revealRotationActive(i, now)) keepAnimating = true;
-            float diameter = iconDiameter * (active ? selectionScale() : 1f)
+            float diameter = iconDiameter * (active ? selectionScale() : focusRecede(i))
                     * (0.78f + 0.22f * reveal) * pop
                     * (1f - 0.22f * dismissalProgress);
             float iconRadius = diameter / 2f;
@@ -392,11 +404,9 @@ final class FanOverlayView extends View {
                 ShortcutBadgeRenderer.drawDual(canvas, x, y, diameter, 1f,
                         getResources().getDisplayMetrics().density, target.isShortcut());
             }
-            if (forceCircularIcons) {
-                canvas.drawCircle(x, y, iconRadius - dp(0.5f), iconStrokePaint);
-            }
             if (active && showSelectionRing) {
-                canvas.drawCircle(x, y, iconRadius + dp(6), selectedPaint);
+                canvas.drawCircle(x, y, iconRadius + dp(7), selectedFillPaint);
+                canvas.drawCircle(x, y, iconRadius + dp(SELECTION_RING_GAP_DP), selectedPaint);
             }
             canvas.restoreToCount(save);
         }
@@ -459,7 +469,7 @@ final class FanOverlayView extends View {
             if (selectionAnimationActive(i, now) || revealRotationActive(i, now)) {
                 keepAnimating = true;
             }
-            float diameter = iconDiameter * (active ? selectionScale() : 1f)
+            float diameter = iconDiameter * (active ? selectionScale() : focusRecede(i))
                     * (0.78f + 0.22f * reveal) * pop
                     * (1f - 0.24f * dismissalProgress);
             float radius = diameter / 2f;
@@ -489,11 +499,8 @@ final class FanOverlayView extends View {
                         alphaFromDismissal(dismissalProgress),
                         getResources().getDisplayMetrics().density, target.isShortcut());
             }
-            if (forceCircularIcons) {
-                canvas.drawCircle(x, y, radius - dp(0.5f), iconStrokePaint);
-            }
             if (active && showSelectionRing) {
-                canvas.drawCircle(x, y, radius + dp(5), selectedPaint);
+                canvas.drawCircle(x, y, radius + dp(SELECTION_RING_GAP_DP), selectedPaint);
             }
             canvas.restoreToCount(save);
             if (showSideNames && active && !sideRingListLayout) {
@@ -527,7 +534,7 @@ final class FanOverlayView extends View {
         float safeTop = statusBarTop >= 0 ? statusBarTop : dp(24);
         float centerY = Math.max(safeTop + boxHeight / 2f + dp(8),
                 sideListTop - sideFanRadius - iconDiameter / 2f - dp(22));
-        pillPaint.setColor(0xf020263f);
+        pillPaint.setColor(Ui.OVERLAY_PLATE_ACTIVE);
         canvas.drawRoundRect(centerX - textWidth / 2f - padding,
                 centerY - boxHeight / 2f, centerX + textWidth / 2f + padding,
                 centerY + boxHeight / 2f, boxHeight / 2f, boxHeight / 2f,
@@ -565,7 +572,7 @@ final class FanOverlayView extends View {
             left = Math.max(dp(10), right - boxWidth);
             right = left + boxWidth;
         }
-        pillPaint.setColor(active ? 0xf020263f : 0xc820263f);
+        pillPaint.setColor(active ? Ui.OVERLAY_PLATE_ACTIVE : Ui.OVERLAY_PLATE_MUTED);
         canvas.drawRoundRect(left, iconY - boxHeight / 2f, right,
                 iconY + boxHeight / 2f, boxHeight / 2f, boxHeight / 2f, pillPaint);
         Paint.FontMetrics metrics = textPaint.getFontMetrics();
@@ -573,6 +580,11 @@ final class FanOverlayView extends View {
         textPaint.setTextAlign(Paint.Align.CENTER);
         canvas.drawText(fitted, 0, fitted.length(), (left + right) / 2f,
                 baseline, textPaint);
+    }
+
+    /** 焦点态退后系数：只有在"确实有选中项"时才让其余图标退后，未选中态一视同仁。 */
+    private float focusRecede(int index) {
+        return selected >= 0 && selected != index ? FOCUS_RECEDE : 1f;
     }
 
     private void drawCircularIcon(Canvas canvas, Drawable drawable, float centerX, float centerY,

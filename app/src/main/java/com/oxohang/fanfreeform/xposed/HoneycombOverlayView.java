@@ -27,6 +27,7 @@ import android.view.animation.DecelerateInterpolator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import com.oxohang.fanfreeform.ui.Ui;
 
 final class HoneycombOverlayView extends View {
     private static final float HOLD_GRID_ACCELERATION = 0.35f;
@@ -182,11 +183,11 @@ final class HoneycombOverlayView extends View {
         });
         setFocusableInTouchMode(true);
         appBackgroundColor = ForegroundAppBackgroundResolver.fallback(context);
-        iconPlatePaint.setColor(0xff17181d);
+        iconPlatePaint.setColor(Ui.OVERLAY_PLATE_SOLID);
         namePaint.setColor(Color.WHITE);
         namePaint.setTextSize(15f * density);
         namePaint.setTextAlign(Paint.Align.CENTER);
-        namePillPaint.setColor(0xdd20263f);
+        namePillPaint.setColor(Ui.OVERLAY_PLATE);
         selectionAnimator.addUpdateListener(value -> {
             selectionProgress = (Float) value.getAnimatedValue();
             invalidate();
@@ -352,9 +353,9 @@ final class HoneycombOverlayView extends View {
     private void applyForegroundColors() {
         boolean light = appBackgroundEnabled && !liveBlurEnabled
                 && Color.luminance(appBackgroundColor) > 0.62f;
-        namePaint.setColor(light ? 0xff202126 : Color.WHITE);
-        namePillPaint.setColor(light ? 0xdde7e9f0 : 0xdd20263f);
-        iconPlatePaint.setColor(light ? 0x99ffffff : 0xff17181d);
+        namePaint.setColor(light ? Ui.OVERLAY_TEXT_ON_LIGHT : Color.WHITE);
+        namePillPaint.setColor(light ? Ui.OVERLAY_PLATE_LIGHT : Ui.OVERLAY_PLATE);
+        iconPlatePaint.setColor(light ? Ui.OVERLAY_ICON_LIGHT : Ui.OVERLAY_PLATE_SOLID);
     }
 
     void playEntry() {

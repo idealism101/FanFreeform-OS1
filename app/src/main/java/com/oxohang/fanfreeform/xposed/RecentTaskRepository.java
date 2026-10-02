@@ -3,20 +3,19 @@ package com.oxohang.fanfreeform.xposed;
 import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
+import android.app.SearchManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
-import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
 import android.graphics.ColorSpace;
 import android.graphics.drawable.Drawable;
 import android.hardware.HardwareBuffer;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
 
@@ -111,6 +110,37 @@ final class RecentTaskRepository {
         return -1;
     }
 
+    /**
+     * 取"此刻真正在前台可见"的任务 id，用于前台变化看护。
+     *
+     * <p>与 {@link #foregroundTaskId()} 的关键区别：后者走
+     * {@code getRecentTasks}，返回的是"按最近使用时间排序的最近任务"，
+     * **第一条并不等于当前前台**（刚退到后台的任务也在里面）。列表呼出瞬间
+     * 系统会调整任务栈，这个序列会在数秒内漂移，用它做基准会造成误判
+     * —— 实测表现为列表无故自动关闭。
+     *
+     * <p>{@code getRunningTasks(1)} 返回的头部元素就是系统认定的当前前台任务
+     * （{@link SystemRecentsLauncher} 与 {@code ForegroundAppBackgroundResolver}
+     * 已在用同一接口）。我们的列表是 overlay 而非 Activity，不会进入该结果，
+     * 因此不会自干扰。
+     *
+     * @return 前台任务 id；读不到时返回 -1（调用方应按"未知"处理，不触发关闭）
+     */
+    int currentForegroundTaskId() {
+        if (activityManager == null) return -1;
+        try {
+            List<ActivityManager.RunningTaskInfo> running = activityManager.getRunningTasks(1);
+            if (running == null || running.isEmpty()) return -1;
+            ActivityManager.RunningTaskInfo top = running.get(0);
+            if (top == null) return -1;
+            return top.taskId;
+        } catch (Throwable error) {
+            Log.i("Cannot read current foreground task error="
+                    + error.getClass().getSimpleName());
+            return -1;
+        }
+    }
+
     /** 原生移除单个最近任务（SystemUI 进程持有 MANAGE_ACTIVITY_TASKS 权限）。 */
     boolean removeTask(int taskId) {
         try {
@@ -149,22 +179,58 @@ final class RecentTaskRepository {
         }
     }
 
-    /** 桌面搜索框：优先负一屏（HyperOS 全局搜索宿主）。 */
+    /**
+     * 列表搜索：走系统登记的全局搜索。
+     *
+     * <p>设备实测（OS1，V816.0.13.0.UMNCNXM）：
+     * {@code am start -a android.search.action.GLOBAL_SEARCH} 拉起的是
+     * {@code com.android.quicksearchbox/.SearchActivityTransparent}，并成为 resumed
+     * 前台 —— 与系统多任务里的搜索同一个宿主（{@code dumpsys activity recents} 的
+     * mHiddenTasks 里挂着一串 quicksearchbox 任务，就是它）。
+     *
+     * <p>这里原先硬编码拉负一屏 {@code com.miui.personalassistant} 的启动 intent，
+     * 但该包没有 LAUNCHER 入口：设备实测 {@code monkey -p com.miui.personalassistant 1}
+     * 直接报 "No activities found to run"，即 {@code getLaunchIntentForPackage} 恒为
+     * null —— 列表里点搜索"没反应"就是这个原因，不是命中区画错。
+     *
+     * <p>降级链（原生优先，不自己指定包名）：
+     * <ol>
+     *   <li>{@link SearchManager#getGlobalSearchActivity()}：系统登记哪个组件就用哪个，
+     *       换 ROM / 换宿主都不用改代码。</li>
+     *   <li>公开 action {@link SearchManager#INTENT_ACTION_GLOBAL_SEARCH}：上面返回
+     *       null 时（本机 SearchManagerService 的 dump 里就没有这一项）让系统按
+     *       action 自己解析 —— 实测命中的就是这条。</li>
+     *   <li>两条都解析不到 → 记日志并返回 false，不伪造跳转。</li>
+     * </ol>
+     */
     boolean openHomeSearch() {
+        Intent intent = globalSearchIntent();
+        if (intent == null) return false;
         try {
-            Intent intent = packageManager.getLaunchIntentForPackage(
-                    "com.miui.personalassistant");
-            if (intent == null) {
-                Log.i("Home search target unavailable package=com.miui.personalassistant");
-                return false;
-            }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
+            Log.i("Home search launched intent=" + intent);
             return true;
         } catch (Throwable error) {
             Log.e("Cannot open home search", error);
             return false;
         }
+    }
+
+    private Intent globalSearchIntent() {
+        SearchManager searchManager =
+                (SearchManager) context.getSystemService(Context.SEARCH_SERVICE);
+        ComponentName registered = searchManager != null
+                ? searchManager.getGlobalSearchActivity() : null;
+        if (registered != null) {
+            Intent direct = new Intent(SearchManager.INTENT_ACTION_GLOBAL_SEARCH);
+            direct.setComponent(registered);
+            if (direct.resolveActivity(packageManager) != null) return direct;
+        }
+        Intent byAction = new Intent(SearchManager.INTENT_ACTION_GLOBAL_SEARCH);
+        if (byAction.resolveActivity(packageManager) != null) return byAction;
+        Log.i("Global search target unavailable registered=" + registered);
+        return null;
     }
 
     /** 应用自己发布的桌面快捷方式（菜单第 5 项起，随应用不同）。 */
@@ -180,36 +246,6 @@ final class RecentTaskRepository {
             this.label = label;
             this.user = user;
         }
-    }
-
-    List<ShortcutEntry> loadLauncherShortcuts(String packageName) {
-        ArrayList<ShortcutEntry> result = new ArrayList<>();
-        LauncherApps launcherApps = context.getSystemService(LauncherApps.class);
-        if (launcherApps == null || packageName == null || packageName.isEmpty()) {
-            return result;
-        }
-        try {
-            UserHandle user = Process.myUserHandle();
-            LauncherApps.ShortcutQuery query = new LauncherApps.ShortcutQuery();
-            query.setPackage(packageName);
-            query.setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST
-                    | LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC);
-            List<ShortcutInfo> found = launcherApps.getShortcuts(query, user);
-            if (found == null) return result;
-            for (ShortcutInfo info : found) {
-                if (info == null || info.getId() == null) continue;
-                CharSequence label = info.getShortLabel() != null
-                        ? info.getShortLabel() : info.getLongLabel();
-                if (label == null) continue;
-                result.add(new ShortcutEntry(packageName, info.getId(), label, user));
-            }
-            Log.i("Launcher shortcuts loaded package=" + packageName
-                    + " count=" + result.size());
-        } catch (Throwable error) {
-            Log.i("Launcher shortcuts unavailable package=" + packageName
-                    + " error=" + error.getClass().getSimpleName());
-        }
-        return result;
     }
 
     boolean launchShortcut(ShortcutEntry entry) {

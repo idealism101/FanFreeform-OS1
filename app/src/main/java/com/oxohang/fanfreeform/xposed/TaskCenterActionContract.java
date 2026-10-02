@@ -38,25 +38,14 @@ final class TaskCenterActionContract {
     static final String EXTRA_TASK_ID = "task_id";
     static final String EXTRA_PACKAGE = "package_name";
     static final String EXTRA_MAX_COUNT = "max_count";
-    static final String EXTRA_INCLUDE_SNAPSHOTS = "include_snapshots";
 
     /** SystemUI 进程侧要收的广播所属包名（这些广播都显式 setPackage 到它）。 */
     static final String SYSTEM_UI_PACKAGE = "com.android.systemui";
     /** 广播的发送方应是模块自身；接收方据此校验来源。 */
     static final String SENDER_PACKAGE = "com.oxohang.fanfreeform";
 
-    /**
-     * 列表 Activity 的宿主包与全限定类名。
-     *
-     * <p><b>必须写死，不能用 {@code context.getPackageName()}。</b>
-     * 发起跳转的 {@code FanRuntime} 运行在 SystemUI 进程，它拿到的 Context 属于
-     * SystemUI，{@code getPackageName()} 返回的是 {@code com.android.systemui} ——
-     * 用它拼组件名会去 SystemUI 包里找这个 Activity，必然抛
-     * {@code ActivityNotFoundException}（设备实测过）。
-     */
+    /** 列表 Activity 的宿主包（必须写死，不能用 Context 的包名，见类注释）。 */
     static final String HOST_PACKAGE = SENDER_PACKAGE;
-    static final String LIST_ACTIVITY_CLASS =
-            "com.oxohang.fanfreeform.xposed.TaskCenterListActivity";
 
     private TaskCenterActionContract() { }
 }
