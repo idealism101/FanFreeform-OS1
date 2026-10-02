@@ -26,7 +26,7 @@ final class SupportQrDialog {
         content.setGravity(Gravity.CENTER_HORIZONTAL);
         content.setPadding(Ui.dp(context, 20), Ui.dp(context, 20),
                 Ui.dp(context, 20), Ui.dp(context, 16));
-        content.setBackground(Ui.rounded(context, Color.WHITE, 24));
+        content.setBackground(Ui.pressable(context, Color.WHITE, Ui.RADIUS_SHEET));
 
         TextView title = text(context, "感谢支持 Hyper手势", 21, Ui.TEXT, Typeface.BOLD);
         content.addView(title);
@@ -48,11 +48,11 @@ final class SupportQrDialog {
         close.setTextColor(Color.WHITE);
         close.setTextSize(15);
         close.setAllCaps(false);
-        close.setBackground(Ui.rounded(context, Ui.ACCENT, 14));
+        close.setBackground(Ui.pressable(context, Ui.ACCENT, Ui.RADIUS_CHIP));
         close.setOnClickListener(view -> dialog.dismiss());
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 48));
-        closeParams.topMargin = Ui.dp(context, 14);
+        closeParams.topMargin = Ui.dp(context, Ui.GAP_M);
         content.addView(close, closeParams);
 
         dialog.setContentView(content);

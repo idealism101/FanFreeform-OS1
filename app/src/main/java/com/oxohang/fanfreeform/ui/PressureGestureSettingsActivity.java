@@ -61,8 +61,8 @@ public final class PressureGestureSettingsActivity extends Activity {
         SensorManager sensorManager = getSystemService(SensorManager.class);
         pressureSensor = sensorManager == null ? null
                 : sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE);
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(buildContent());
     }
@@ -97,7 +97,7 @@ public final class PressureGestureSettingsActivity extends Activity {
 
     private View buildContent() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(0xfff4f5fa);
+        frame.setBackgroundColor(Ui.BACKGROUND);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -224,7 +224,7 @@ public final class PressureGestureSettingsActivity extends Activity {
         preview = new PressurePreviewView(this);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 280));
-        previewParams.topMargin = Ui.dp(this, 12);
+        previewParams.topMargin = Ui.dp(this, Ui.GAP_S);
         previewCard.addView(preview, previewParams);
         previewCard.addView(toggleRow("显示按压范围（测试）",
                 "仅显示按压手势的目标圆，关闭后立即移除",
@@ -262,13 +262,13 @@ public final class PressureGestureSettingsActivity extends Activity {
         TextView add = text("＋", 32, android.graphics.Color.WHITE, Typeface.NORMAL);
         add.setGravity(Gravity.CENTER);
         add.setContentDescription("新增按压触发区域");
-        add.setBackground(Ui.rounded(this, Ui.ACCENT, 30));
+        add.setBackground(Ui.pressable(this, Ui.ACCENT, Ui.RADIUS_SHEET));
         add.setElevation(Ui.dp(this, 8));
         add.setOnClickListener(view -> addTrigger());
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(
                 Ui.dp(this, 58), Ui.dp(this, 58), Gravity.END | Gravity.BOTTOM);
-        addParams.rightMargin = Ui.dp(this, 24);
-        addParams.bottomMargin = Ui.dp(this, 26);
+        addParams.rightMargin = Ui.dp(this, Ui.GAP_XL);
+        addParams.bottomMargin = Ui.dp(this, Ui.GAP_XL);
         frame.addView(add, addParams);
 
         renderTriggers();
@@ -422,7 +422,7 @@ public final class PressureGestureSettingsActivity extends Activity {
     private void startCalibration() {
         if (pressureSensor == null) {
             calibrationStatus.setText("当前手机没有可用的气压传感器");
-            calibrationStatus.setTextColor(0xffb14242);
+            calibrationStatus.setTextColor(Ui.DANGER);
             return;
         }
         prefs.edit()
@@ -526,7 +526,7 @@ public final class PressureGestureSettingsActivity extends Activity {
         if (calibrationStatus == null) return;
         if (pressureSensor == null) {
             calibrationStatus.setText("当前手机没有可用的气压传感器");
-            calibrationStatus.setTextColor(0xffb14242);
+            calibrationStatus.setTextColor(Ui.DANGER);
             return;
         }
         boolean calibrated = prefs.getBoolean(ConfigContract.KEY_PRESSURE_CALIBRATED,
@@ -546,7 +546,7 @@ public final class PressureGestureSettingsActivity extends Activity {
             calibrationStatus.setText(attempts >= 5
                     ? "校准失败：有效样本不足 3 个，请重新校准"
                     : "尚未校准：完成 5 次按压后才能启用");
-            calibrationStatus.setTextColor(0xffa16c20);
+            calibrationStatus.setTextColor(Ui.WARNING);
             return;
         }
         float threshold = prefs.getFloat(ConfigContract.KEY_PRESSURE_THRESHOLD,
@@ -555,7 +555,7 @@ public final class PressureGestureSettingsActivity extends Activity {
                 ConfigContract.DEFAULT_PRESSURE_CALIBRATION_VALID_COUNT);
         calibrationStatus.setText("已校准：" + count + " 个有效样本，阈值 "
                 + String.format(java.util.Locale.US, "%.3f", threshold) + " hPa");
-        calibrationStatus.setTextColor(0xff287d4d);
+        calibrationStatus.setTextColor(Ui.SUCCESS);
     }
 
     private View slider(String title, String key, int min, int max, int current, int step,
@@ -602,7 +602,7 @@ public final class PressureGestureSettingsActivity extends Activity {
         PressurePreviewView(Context context) {
             super(context);
             screenPaint.setStyle(Paint.Style.FILL);
-            screenPaint.setColor(0xfff7f8fc);
+            screenPaint.setColor(Ui.BACKGROUND);
             circlePaint.setStyle(Paint.Style.STROKE);
             circlePaint.setStrokeWidth(Ui.dp(context, 3));
             PathEffect dash = new DashPathEffect(new float[]{Ui.dp(context, 8), Ui.dp(context, 5)}, 0);
@@ -619,7 +619,7 @@ public final class PressureGestureSettingsActivity extends Activity {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            canvas.drawColor(0xffeef0f8);
+            canvas.drawColor(Ui.BACKGROUND);
             float left = getWidth() * 0.12f;
             float top = getHeight() * 0.06f;
             float right = getWidth() * 0.88f;
@@ -632,14 +632,14 @@ public final class PressureGestureSettingsActivity extends Activity {
             float radiusScale = Math.min(scaleX, scaleY);
             for (int index = 0; index < triggers.size(); index++) {
                 PressureTrigger trigger = triggers.get(index);
-                circlePaint.setColor(trigger.enabled ? Ui.ACCENT : 0xff9da3b4);
+                circlePaint.setColor(trigger.enabled ? Ui.ACCENT : Ui.DISABLED);
                 float cx = left + scaleX * trigger.centerXPercent / 100f;
                 float cy = top + scaleY * trigger.centerYPercent / 100f;
                 float radius = radiusScale * trigger.radiusPercent / 100f;
                 canvas.drawCircle(cx, cy, radius, circlePaint);
                 centerPaint.setColor(trigger.enabled ? 0x555a67f2 : 0x335f6475);
                 canvas.drawCircle(cx, cy, Ui.dp(getContext(), 5), centerPaint);
-                labelPaint.setColor(trigger.enabled ? Ui.MUTED : 0xff9da3b4);
+                labelPaint.setColor(trigger.enabled ? Ui.MUTED : Ui.DISABLED);
                 canvas.drawText(String.valueOf(index + 1), cx, cy + Ui.dp(getContext(), 4), labelPaint);
             }
             canvas.drawText(calibrationCapture ? "实际屏幕校准中（此处不是校准区域）" : "按压范围预览",
@@ -652,7 +652,7 @@ public final class PressureGestureSettingsActivity extends Activity {
         button.setText(title);
         button.setTextColor(Ui.ACCENT);
         button.setAllCaps(false);
-        button.setBackground(Ui.rounded(this, 0xffeef0ff, 16));
+        button.setBackground(Ui.pressable(this, Ui.ACCENT_SOFT, Ui.RADIUS_CARD));
         return button;
     }
 
@@ -660,7 +660,7 @@ public final class PressureGestureSettingsActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16), Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         return card;
     }
@@ -668,7 +668,7 @@ public final class PressureGestureSettingsActivity extends Activity {
     private LinearLayout.LayoutParams cardParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = Ui.dp(this, 14);
+        params.topMargin = Ui.dp(this, Ui.GAP_M);
         return params;
     }
 

@@ -52,8 +52,8 @@ public final class HoneycombLayoutEditorActivity extends Activity {
         Drawable fallback = getApplicationInfo().loadIcon(getPackageManager());
         for (int index = 0; index < targets.size(); index++) icons.add(fallback);
 
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(buildContent());
         loadIcons();
@@ -69,7 +69,7 @@ public final class HoneycombLayoutEditorActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14), Ui.dp(this, 20),
                 Ui.dp(this, 24));
-        root.setBackgroundColor(0xfff4f5fa);
+        root.setBackgroundColor(Ui.BACKGROUND);
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -82,7 +82,7 @@ public final class HoneycombLayoutEditorActivity extends Activity {
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         editButton = text("编辑", 15, Ui.ACCENT, Typeface.BOLD);
         editButton.setGravity(Gravity.CENTER);
-        editButton.setBackground(Ui.rounded(this, Color.WHITE, 16));
+        editButton.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
         editButton.setOnClickListener(view -> setEditing(!editing));
         header.addView(editButton, new LinearLayout.LayoutParams(
                 Ui.dp(this, 66), Ui.dp(this, 42)));
@@ -99,7 +99,7 @@ public final class HoneycombLayoutEditorActivity extends Activity {
         float spacing = prefs.getInt(ConfigContract.KEY_HONEYCOMB_SPACING_DP,
                 ConfigContract.DEFAULT_HONEYCOMB_SPACING_DP);
         preview = new HoneycombEditorView(this);
-        preview.setBackground(Ui.rounded(this, 0xff15161b, 24));
+        preview.setBackground(Ui.pressable(this, 0xff15161b, Ui.RADIUS_SHEET));
         preview.setItems(icons, targets, iconSize, spacing);
         preview.setOnSwapListener((from, to) -> {
             HoneycombSlotLayout.swap(targets, from, to);
@@ -116,7 +116,7 @@ public final class HoneycombLayoutEditorActivity extends Activity {
         this.editing = editing;
         editButton.setText(editing ? "完成" : "编辑");
         editButton.setTextColor(editing ? Color.WHITE : Ui.ACCENT);
-        editButton.setBackground(Ui.rounded(this, editing ? Ui.ACCENT : Color.WHITE, 16));
+        editButton.setBackground(Ui.pressable(this, editing ? Ui.ACCENT : Color.WHITE, Ui.RADIUS_CARD));
         preview.setEditing(editing);
     }
 

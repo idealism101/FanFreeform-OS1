@@ -28,8 +28,8 @@ public final class GestureSettingsActivity extends Activity {
         super.onCreate(state);
         sideMode = MODE_SIDE.equals(getIntent().getStringExtra(EXTRA_MODE));
         prefs = new ConfigStore(this).preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
@@ -42,7 +42,7 @@ public final class GestureSettingsActivity extends Activity {
     private View content() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -144,7 +144,7 @@ public final class GestureSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 10),
                 Ui.dp(this, 18), Ui.dp(this, 10));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -160,7 +160,7 @@ public final class GestureSettingsActivity extends Activity {
         card.addView(row);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.bottomMargin = Ui.dp(this, 12);
+        params.bottomMargin = Ui.dp(this, Ui.GAP_S);
         card.setLayoutParams(params);
         return card;
     }

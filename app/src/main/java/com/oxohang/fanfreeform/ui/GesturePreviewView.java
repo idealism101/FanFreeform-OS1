@@ -20,9 +20,9 @@ final class GesturePreviewView extends View {
 
     GesturePreviewView(Context context) {
         super(context);
-        screenPaint.setColor(0xffe8eaf2);
+        screenPaint.setColor(Ui.PREVIEW_SCREEN);
         zonePaint.setColor(0x886572f6);
-        edgePaint.setColor(0xffc8ccd9);
+        edgePaint.setColor(Ui.PREVIEW_EDGE);
         edgePaint.setStyle(Paint.Style.STROKE);
         edgePaint.setStrokeWidth(Ui.dp(context, 1));
     }

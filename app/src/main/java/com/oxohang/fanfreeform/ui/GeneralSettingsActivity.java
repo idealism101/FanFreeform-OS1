@@ -25,10 +25,10 @@ public final class GeneralSettingsActivity extends Activity {
         super.onCreate(state);
         store = new ConfigStore(this);
         prefs = store.preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14), Ui.dp(this, 20), Ui.dp(this, 36));
@@ -75,7 +75,7 @@ public final class GeneralSettingsActivity extends Activity {
         toggle.setOnCheckedChangeListener((b,c)->store.putBoolean(key,c)); row.addView(toggle); return row;
     }
     private LinearLayout card(){ LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(Ui.dp(this,18),Ui.dp(this,10),Ui.dp(this,18),Ui.dp(this,10));c.setBackground(Ui.rounded(this,Ui.SURFACE,20));return c; }
+        c.setPadding(Ui.dp(this,18),Ui.dp(this,10),Ui.dp(this,18),Ui.dp(this,10));c.setBackground(Ui.pressable(this,Ui.SURFACE, Ui.RADIUS_CARD));return c; }
     private View selectionTransformRow() {
         LinearLayout section = new LinearLayout(this);
         section.setOrientation(LinearLayout.VERTICAL);

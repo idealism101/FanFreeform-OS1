@@ -41,8 +41,8 @@ public final class TaskCenterSettingsActivity extends Activity {
                 Math.round(legacySize * 1.67f));
         cardCorner = prefs.getInt(ConfigContract.KEY_SIDE_TASK_CARD_CORNER_DP,
                 ConfigContract.DEFAULT_SIDE_TASK_CARD_CORNER_DP);
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
@@ -50,7 +50,7 @@ public final class TaskCenterSettingsActivity extends Activity {
     private View content() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -78,7 +78,7 @@ public final class TaskCenterSettingsActivity extends Activity {
         preview.update(cardWidth, cardHeight, cardCorner);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 230));
-        previewParams.topMargin = Ui.dp(this, 14);
+        previewParams.topMargin = Ui.dp(this, Ui.GAP_M);
         card.addView(preview, previewParams);
         card.addView(slider("最近运行任务数",
                 ConfigContract.KEY_SIDE_TASK_MAX_COUNT,
@@ -142,7 +142,7 @@ public final class TaskCenterSettingsActivity extends Activity {
         motionCard.addView(motionEntry);
         LinearLayout.LayoutParams motionParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        motionParams.topMargin = Ui.dp(this, 14);
+        motionParams.topMargin = Ui.dp(this, Ui.GAP_M);
         root.addView(motionCard, motionParams);
 
         Ui.addResetOption(this, root,
@@ -204,41 +204,6 @@ public final class TaskCenterSettingsActivity extends Activity {
                 ConfigContract.KEY_SIDE_TASK_REVERSE_ORDER, checked));
         settingRow.addView(toggle);
         return settingRow;
-    }
-
-    private View motionModeRow() {
-        LinearLayout section = new LinearLayout(this);
-        section.setOrientation(LinearLayout.VERTICAL);
-        section.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 10));
-        section.addView(text("选择动效", 16, Ui.TEXT, Typeface.BOLD));
-        section.addView(text("三种动效共用同一套准确的任务命中逻辑",
-                13, Ui.MUTED, Typeface.NORMAL));
-        RadioGroup group = new RadioGroup(this);
-        group.setOrientation(RadioGroup.VERTICAL);
-        RadioButton apple = radio("苹果流畅 · 轻吸附、近似 1:1 跟手",
-                ConfigContract.SIDE_TASK_MOTION_APPLE);
-        RadioButton magnetic = radio("磁吸轨道 · 吸入、上浮与短回弹",
-                ConfigContract.SIDE_TASK_MOTION_MAGNETIC);
-        RadioButton marble = radio("弹珠磁场 · 明显吸附与连带波动",
-                ConfigContract.SIDE_TASK_MOTION_MARBLE);
-        group.addView(apple);
-        group.addView(magnetic);
-        group.addView(marble);
-        int current = prefs.getInt(ConfigContract.KEY_SIDE_TASK_MOTION_MODE,
-                ConfigContract.DEFAULT_SIDE_TASK_MOTION_MODE);
-        group.check(current == ConfigContract.SIDE_TASK_MOTION_APPLE
-                ? apple.getId() : current == ConfigContract.SIDE_TASK_MOTION_MARBLE
-                ? marble.getId() : magnetic.getId());
-        group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
-            int value = checkedId == apple.getId()
-                    ? ConfigContract.SIDE_TASK_MOTION_APPLE
-                    : checkedId == marble.getId()
-                    ? ConfigContract.SIDE_TASK_MOTION_MARBLE
-                    : ConfigContract.SIDE_TASK_MOTION_MAGNETIC;
-            store.putInt(ConfigContract.KEY_SIDE_TASK_MOTION_MODE, value);
-        });
-        section.addView(group);
-        return section;
     }
 
     private View showNameRow() {
@@ -349,7 +314,7 @@ public final class TaskCenterSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16),
                 Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         return card;
     }
 

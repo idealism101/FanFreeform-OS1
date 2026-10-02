@@ -75,13 +75,13 @@ public final class WindowSettingsActivity extends Activity {
         landscapeNativeScale = prefs.getInt(
                 ConfigContract.KEY_LANDSCAPE_NATIVE_SCALE_PERCENT,
                 ConfigContract.DEFAULT_NATIVE_WINDOW_SCALE_PERCENT);
-        getWindow().setStatusBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
 
     private View content() {
-        ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(0xfff4f5fa);
+        ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this,20),Ui.dp(this,14),Ui.dp(this,20),Ui.dp(this,36)); scroll.addView(root);
         root.addView(header("小窗位置设置"));
@@ -152,13 +152,13 @@ public final class WindowSettingsActivity extends Activity {
         landscapeCard.addView(landscapeControls);
         LinearLayout.LayoutParams landscapeParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
-        landscapeParams.topMargin=Ui.dp(this,14);
+        landscapeParams.topMargin=Ui.dp(this, Ui.GAP_M);
         customControls.addView(landscapeCard,landscapeParams);
         TextView note=text("两个方向独立生效；关闭的方向完全交由 HyperOS 管理。",13,Ui.MUTED,Typeface.NORMAL);
         note.setPadding(0,Ui.dp(this,12),0,0); customControls.addView(note);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        controlsParams.topMargin = Ui.dp(this, 14);
+        controlsParams.topMargin = Ui.dp(this, Ui.GAP_M);
         root.addView(customControls, controlsParams);
         updateCustomControls();
         Ui.addResetOption(this, root,
@@ -294,7 +294,7 @@ public final class WindowSettingsActivity extends Activity {
                 updatePreviews();}});group.addView(seek);return group;
     }
     private View header(String title){LinearLayout h=new LinearLayout(this);h.setGravity(Gravity.CENTER_VERTICAL);TextView b=text("‹",38,Ui.TEXT,Typeface.NORMAL);b.setGravity(Gravity.CENTER);b.setOnClickListener(v->finish());h.addView(b,new LinearLayout.LayoutParams(Ui.dp(this,44),Ui.dp(this,52)));h.addView(text(title,26,Ui.TEXT,Typeface.BOLD));return h;}
-    private LinearLayout card(){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(Ui.dp(this,18),Ui.dp(this,16),Ui.dp(this,18),Ui.dp(this,16));c.setBackground(Ui.rounded(this,Ui.SURFACE,20));return c;}
+    private LinearLayout card(){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(Ui.dp(this,18),Ui.dp(this,16),Ui.dp(this,18),Ui.dp(this,16));c.setBackground(Ui.pressable(this,Ui.SURFACE, Ui.RADIUS_CARD));return c;}
     private TextView text(String v,float s,int c,int st){TextView t=new TextView(this);t.setText(v);t.setTextSize(s);t.setTextColor(c);t.setTypeface(null,st);return t;}
     private interface Label{String label(int value);}
 }
