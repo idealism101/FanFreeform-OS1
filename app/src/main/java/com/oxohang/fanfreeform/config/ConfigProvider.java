@@ -615,6 +615,9 @@ public final class ConfigProvider extends ContentProvider {
             out.putBoolean(ConfigContract.KEY_PRESSURE_CALIBRATION_ACTIVE,
                     prefs.getBoolean(ConfigContract.KEY_PRESSURE_CALIBRATION_ACTIVE,
                             ConfigContract.DEFAULT_PRESSURE_CALIBRATION_ACTIVE));
+            // 用户主动请求重连手势输入的递增时间戳；模块据此判断"是否有新请求"。
+            out.putLong(ConfigContract.KEY_INPUT_RECONNECT_AT,
+                    prefs.getLong(ConfigContract.KEY_INPUT_RECONNECT_AT, 0L));
             return out;
         }
         if ("report_pressure_calibration_sample".equals(method) && extras != null) {

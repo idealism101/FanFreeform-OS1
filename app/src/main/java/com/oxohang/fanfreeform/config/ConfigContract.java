@@ -121,10 +121,6 @@ public final class ConfigContract {
             "portrait_proportional_size_enabled";
     public static final String KEY_LANDSCAPE_PROPORTIONAL_SIZE_ENABLED =
             "landscape_proportional_size_enabled";
-    public static final String KEY_PORTRAIT_OVERALL_SIZE_PERCENT =
-            "portrait_overall_size_percent";
-    public static final String KEY_LANDSCAPE_OVERALL_SIZE_PERCENT =
-            "landscape_overall_size_percent";
     public static final String KEY_PORTRAIT_NATIVE_SCALE_PERCENT =
             "portrait_native_scale_percent";
     public static final String KEY_LANDSCAPE_NATIVE_SCALE_PERCENT =
@@ -144,6 +140,15 @@ public final class ConfigContract {
     public static final String KEY_ACTIVITY_CATALOG_REQUEST = "activity_catalog_request";
     public static final String KEY_INTERFACE_STATUS = "interface_status";
     public static final String KEY_INTERFACE_TIME = "interface_time";
+    /**
+     * 输入通道重连请求（long，写入"请求时刻"）。
+     *
+     * <p>用途：设置 App 与模块不在同一进程，无法直调模块内部方法。用户在"杂项设置"里
+     * 点「重新连接手势输入」时写入本键，模块的运行时 ContentObserver 观察到该值变化后
+     * 重建原生手势输入通道。复用既有"写配置 + notifyChange(RUNTIME_URI)"通路，
+     * 不新增 IPC 机制。
+     */
+    public static final String KEY_INPUT_RECONNECT_AT = "input_reconnect_at";
     public static final String KEY_DIAGNOSTICS_SYSTEM_UI = "diagnostics_system_ui";
     public static final String KEY_DIAGNOSTICS_MIUI_HOME = "diagnostics_miui_home";
     public static final String EXTRA_DIAGNOSTIC_PROCESS = "diagnostic_process";
@@ -151,8 +156,6 @@ public final class ConfigContract {
     /** 任务中心列表快照：SystemUI 进程写入、模块进程的列表 Activity 读取。 */
     public static final String METHOD_REPORT_TASK_LIST = "report_task_list";
     public static final String METHOD_GET_TASK_LIST = "get_task_list";
-    public static final String KEY_TASK_LIST = "task_list";
-    public static final String KEY_TASK_LIST_REQUEST = "task_list_request";
     /** 任务列表快照的每项字段（与 RecentTaskPreview 一一对应）。 */
     public static final String EXTRA_TASK_IDS = "task_ids";
     public static final String EXTRA_TASK_PACKAGES = "task_packages";
@@ -170,9 +173,6 @@ public final class ConfigContract {
     public static final String KEY_HONEYCOMB_ENABLED = "honeycomb_enabled";
     public static final String KEY_HONEYCOMB_COMPONENTS = "honeycomb_components";
     public static final String KEY_HONEYCOMB_MODE = "honeycomb_mode";
-    /** @deprecated Dead setting: the current state machine no longer consumes it. */
-    @Deprecated
-    public static final String KEY_HONEYCOMB_TRIGGER_DP = "honeycomb_trigger_dp";
     public static final String KEY_HONEYCOMB_ICON_SIZE_DP = "honeycomb_icon_size_dp";
     public static final String KEY_HONEYCOMB_SPACING_DP = "honeycomb_spacing_dp";
     public static final String KEY_HONEYCOMB_ANIMATION_SPEED = "honeycomb_animation_speed";
@@ -194,8 +194,6 @@ public final class ConfigContract {
     public static final String KEY_SIDE_DIRECTION_UP = "side_direction_up";
     public static final String KEY_SIDE_DIRECTION_DOWN = "side_direction_down";
     public static final String KEY_SIDE_FULLSCREEN = "side_honeycomb_fullscreen";
-    @Deprecated
-    public static final String KEY_SIDE_HONEYCOMB_FULLSCREEN = KEY_SIDE_FULLSCREEN;
     public static final String KEY_BOTTOM_FULLSCREEN = "bottom_fullscreen";
     public static final String KEY_BOTTOM_HONEYCOMB_FREEFORM =
             "bottom_honeycomb_freeform";
@@ -216,9 +214,6 @@ public final class ConfigContract {
     public static final String KEY_HONEYCOMB_LIVE_BLUR_DP = "honeycomb_live_blur_dp";
     public static final String KEY_HONEYCOMB_BACKGROUND_DIM_PERCENT =
             "honeycomb_background_dim_percent";
-    /** @deprecated Dead setting: the current state machine no longer consumes it. */
-    @Deprecated
-    public static final String KEY_HONEYCOMB_RETREAT_DP = "honeycomb_retreat_dp";
     public static final String KEY_HONEYCOMB_DISC_SIZE_PERCENT =
             "honeycomb_disc_size_percent";
     public static final String KEY_PRESSURE_GESTURE_ENABLED =
@@ -360,8 +355,6 @@ public final class ConfigContract {
     public static final int DEFAULT_SIDE_ICON_SIZE_DP = 34;
     public static final int DEFAULT_SIDE_TOP_SAFE_MARGIN_PERCENT = 20;
     public static final boolean DEFAULT_SHOW_SELECTED_APP_NAME = false;
-    public static final boolean DEFAULT_SIDE_SHOW_APP_NAMES =
-            DEFAULT_SHOW_SELECTED_APP_NAME;
     public static final boolean DEFAULT_SIDE_FOLLOW_FINGER = true;
     public static final boolean DEFAULT_SIDE_FAN_LIST = true;
     public static final int SIDE_LAYOUT_LIST = 0;
@@ -438,12 +431,6 @@ public final class ConfigContract {
     public static final boolean DEFAULT_CUSTOM_WINDOW_LANDSCAPE_ENABLED = false;
     public static final boolean DEFAULT_PORTRAIT_PROPORTIONAL_SIZE_ENABLED = true;
     public static final boolean DEFAULT_LANDSCAPE_PROPORTIONAL_SIZE_ENABLED = true;
-    public static final int MIN_PORTRAIT_OVERALL_SIZE_PERCENT = 35;
-    public static final int MAX_PORTRAIT_OVERALL_SIZE_PERCENT = 90;
-    public static final int DEFAULT_PORTRAIT_OVERALL_SIZE_PERCENT = 74;
-    public static final int MIN_LANDSCAPE_OVERALL_SIZE_PERCENT = 20;
-    public static final int MAX_LANDSCAPE_OVERALL_SIZE_PERCENT = 90;
-    public static final int DEFAULT_LANDSCAPE_OVERALL_SIZE_PERCENT = 41;
     public static final int MIN_NATIVE_WINDOW_SCALE_PERCENT = 50;
     public static final int DEFAULT_NATIVE_WINDOW_SCALE_PERCENT = 100;
     public static final int MAX_NATIVE_WINDOW_SCALE_PERCENT = 150;
@@ -469,9 +456,6 @@ public final class ConfigContract {
     public static final int HONEYCOMB_MODE_HOLD = 1;
     public static final boolean DEFAULT_HONEYCOMB_ENABLED = true;
     public static final int DEFAULT_HONEYCOMB_MODE = HONEYCOMB_MODE_HOLD;
-    public static final int DEFAULT_HONEYCOMB_TRIGGER_DP = 198;
-    public static final int MIN_HONEYCOMB_TRIGGER_DP = 120;
-    public static final int MAX_HONEYCOMB_TRIGGER_DP = 600;
     public static final int DEFAULT_HONEYCOMB_ICON_SIZE_DP = 40;
     public static final int MIN_HONEYCOMB_ICON_SIZE_DP = 20;
     public static final int MAX_HONEYCOMB_ICON_SIZE_DP = 100;
@@ -493,14 +477,12 @@ public final class ConfigContract {
     public static final boolean DEFAULT_HONEYCOMB_EMPTY_TAP_CLOSE = true;
     public static final boolean DEFAULT_HONEYCOMB_SHOW_SELECTED_NAME = true;
     public static final int DEFAULT_FAN_MAX_TARGETS = 15;
-    public static final int MIN_FAN_MAX_TARGETS = 3;
     public static final int MAX_FAN_MAX_TARGETS = 24;
     public static final int DEFAULT_HONEYCOMB_MAX_TARGETS = 59;
     public static final int MIN_HONEYCOMB_MAX_TARGETS = 1;
     public static final int MAX_HONEYCOMB_MAX_TARGETS = 60;
     public static final boolean DEFAULT_SIDE_FOLLOW_HONEYCOMB = false;
     public static final int DEFAULT_SIDE_MAX_TARGETS = 10;
-    public static final int MIN_SIDE_MAX_TARGETS = 1;
     public static final int MAX_SIDE_MAX_TARGETS = 36;
     public static final boolean DEFAULT_SIDE_DIRECTION_HORIZONTAL = true;
     public static final boolean DEFAULT_SIDE_DIRECTION_UP = true;
@@ -508,8 +490,6 @@ public final class ConfigContract {
     public static final boolean DEFAULT_SIDE_FULLSCREEN = false;
     public static final boolean DEFAULT_SIDE_PORTRAIT_FULLSCREEN = false;
     public static final boolean DEFAULT_SIDE_LANDSCAPE_FULLSCREEN = false;
-    @Deprecated
-    public static final boolean DEFAULT_SIDE_HONEYCOMB_FULLSCREEN = DEFAULT_SIDE_FULLSCREEN;
     public static final boolean DEFAULT_BOTTOM_FULLSCREEN = false;
     public static final boolean DEFAULT_BOTTOM_HONEYCOMB_FREEFORM = true;
     public static final boolean DEFAULT_BOTTOM_PORTRAIT_FULLSCREEN = false;
@@ -529,16 +509,11 @@ public final class ConfigContract {
     public static final boolean DEFAULT_HONEYCOMB_LIVE_BLUR_ENABLED = false;
     public static final int DEFAULT_HONEYCOMB_LIVE_BLUR_DP = 36;
     public static final int DEFAULT_HONEYCOMB_BACKGROUND_DIM_PERCENT = 22;
-    public static final int DEFAULT_HONEYCOMB_RETREAT_DP = 120;
-    public static final int MIN_HONEYCOMB_RETREAT_DP = 20;
-    public static final int MAX_HONEYCOMB_RETREAT_DP = 120;
     public static final int DEFAULT_HONEYCOMB_DISC_SIZE_PERCENT = 60;
     public static final int MIN_HONEYCOMB_DISC_SIZE_PERCENT = 50;
     public static final int MAX_HONEYCOMB_DISC_SIZE_PERCENT = 100;
     public static final boolean DEFAULT_PRESSURE_GESTURE_ENABLED = false;
     public static final int DEFAULT_PRESSURE_LONG_PRESS_MS = 300;
-    public static final int MIN_PRESSURE_LONG_PRESS_MS = 200;
-    public static final int MAX_PRESSURE_LONG_PRESS_MS = 800;
     public static final int DEFAULT_PRESSURE_CENTER_X_PERCENT = 50;
     public static final int DEFAULT_PRESSURE_CENTER_Y_PERCENT = 50;
     public static final int DEFAULT_PRESSURE_RADIUS_PERCENT = 12;

@@ -58,6 +58,17 @@ final class FanRuntime {
     private static final float BOTTOM_SWIPE_START_ZONE_DP = 96f;
     /** 列表态下，纵向位移超过该距离且明显大于横向，判定为一次底部上划。 */
     private static final float BOTTOM_SWIPE_MIN_DISTANCE_DP = 48f;
+    /**
+     * 前台任务看护的轮询间隔（毫秒）。
+     *
+     * <p>只在列表窗口在场期间运行，量很小；200ms 足以在手势停顿前后捕捉到
+     * 前台切换，又不会给 SystemUI 主线程造成可见负担。
+     * 用系统查询（{@code getRecentTasks}）而不是自建 hook，属于"系统级兜底"：
+     * 若后续确认 shell 有可靠的前台过渡回调，可替换为原生回调，轮询退为备份。
+     */
+    private static final long FOREGROUND_WATCH_INTERVAL_MS = 200L;
+    /** 连续读到同一个新前台任务多少次才认定切换完成（避开切换瞬间的抖动）。 */
+    private static final int FOREGROUND_WATCH_CONFIRM_HITS = 2;
     private static final long PRESSURE_CANDIDATE_TIMEOUT_MS = 5000L;
     private static final long PRESSURE_SELECTION_SENSOR_IDLE_MS = 180L;
     private static final long PRESSURE_CALIBRATION_INACTIVITY_TIMEOUT_MS = 120_000L;
@@ -79,6 +90,12 @@ final class FanRuntime {
     private final PressureDebugOverlayController pressureDebugOverlay;
     private final TaskSwitcherOverlayController taskSwitcherOverlay;
     private final RecentTaskRepository recentTaskRepository;
+    /**
+     * 应用锁定状态源：读 {@code Settings.System("locked_apps")}（系统权威源头，
+     * 由 system_server 的 ProcessManagerService 维护）。进程级单例 —— 跨多次列表呼出复用，
+     * 不跟着视图创建销毁。
+     */
+    private final LockedAppStore lockedApps;
     private final SystemRecentsLauncher systemRecentsLauncher;
     private final FullscreenAppLauncher fullscreenLauncher;
     private final FanTriggerCapture triggerCapture;
@@ -90,6 +107,15 @@ final class FanRuntime {
     private final GestureReplayGuard gestureReplayGuard = new GestureReplayGuard();
     private final HoneycombGestureState honeycombGestureState = new HoneycombGestureState();
     private final InputSourceCoordinator inputSources = new InputSourceCoordinator();
+    // 原生输入通道"挂上 ≠ 在收事件"。framework gesture monitor 注册成功后，
+    // inputflinger 侧可能要到下一帧才真正投递（实测 SystemUI 刚重启时偶发数分钟空窗）。
+    // 这里用一个可重置的看护：挂上后 CHANNEL_VERIFY_TIMEOUT_MS 内若一条 MotionEvent 都没来，
+    // 判定为"挂名通道"，主动降级回 corner fallback 并请求重建，避免用户对着不响应的手势干瞪眼。
+    private static final long CHANNEL_VERIFY_TIMEOUT_MS = 8000L;
+    private final Runnable channelVerifyTimeout = this::onChannelVerifyTimeout;
+    private boolean channelVerifyPending;
+    /** 上次已处理的"用户请求重连输入通道"时间戳，用于区分"新请求"与"同一请求重复送达"。 */
+    private long lastInputReconnectAt;
     private final float density;
     private final float directionDecisionDistance;
     private final float cornerTapSlop;
@@ -114,6 +140,23 @@ final class FanRuntime {
     private float bottomSwipeDownY;
     private float bottomSwipeDownX;
     private boolean bottomSwipeArmed;
+    /** 侧边返回手势跟手让位：手势所在边 / 起点 x / 已达成的最大进度。 */
+    private GestureGeometry.Corner backYieldSide;
+    private float backYieldDownX;
+    private float backYieldProgress;
+    /**
+     * 前台任务看护：列表窗口在场期间，盯住系统前台任务是否被换掉
+     * （从别处跳转应用/回桌面/通知进入），一旦变化立刻让列表退场。
+     *
+     * <p>这是「列表该关而没关」的第五条通路 —— 前四条（底部上划 / 开小窗 /
+     * 系统面板 / 点卡片启动）都各自绑定了具体动作，唯独"用户从旁路切走了
+     * 前台应用"没有任何信号，列表会一直浮在新应用之上。
+     */
+    private int foregroundWatchTaskId = -1;
+    private boolean foregroundWatchActive;
+    private int foregroundWatchPendingId = -1;
+    private int foregroundWatchPendingHits;
+    private final Runnable foregroundWatchTick = this::runForegroundWatch;
     /** 当前列表承载的任务集合，供「全部关闭」使用。 */
     private volatile List<RecentTaskPreview> activeRecentTasks;
     /** 第三档卡片列表的宿主是模块进程的 Activity，此处只记录它是否正在前台。 */
@@ -411,6 +454,15 @@ final class FanRuntime {
         pressureDebugOverlay = new PressureDebugOverlayController(context, mainHandler);
         taskSwitcherOverlay = new TaskSwitcherOverlayController(context, mainHandler);
         recentTaskRepository = new RecentTaskRepository(context);
+        // userId 反射取（Context.getUserId / UserHandle.myUserId 都是 @hide，
+        // 编译期不可见但运行期存在）。locked_apps 是"按 userId 分组"的结构，
+        // 必须与系统写的那一组对齐，否则一项都读不到。
+        lockedApps = new LockedAppStore(context, LockedAppStore.currentUserId());
+        // 启动即探测原生锁定写接口是否可用：日志一眼可见本机走的是
+        // ProcessManager.updateApplicationLockedState（原生入口，通知链完整）
+        // 还是降级到直接写 Settings（旁路，launcher 缓存不会刷新）。
+        Log.i("LockedAppBridge available=" + LockedAppBridge.isAvailable()
+                + " userId=" + LockedAppStore.currentUserId());
         systemRecentsLauncher = new SystemRecentsLauncher(context);
         fullscreenLauncher = new FullscreenAppLauncher(context);
         triggerCapture = new FanTriggerCapture(context, mainHandler,
@@ -561,6 +613,7 @@ final class FanRuntime {
         });
         if (started.isOk()) {
             completeNativeInputRegistration();
+            beginChannelVerification();
             Log.i("System gesture monitor attached kind=" + source.kind()
                     + " monitor=" + (source.monitorHandle() != null));
         } else {
@@ -576,6 +629,43 @@ final class FanRuntime {
         updateInterfaceStatusAsync();
         Log.i("Input capability native_input=missing corner_fallback="
                 + (cornerFallbackAvailable ? "ready" : "waiting"));
+    }
+
+    /**
+     * 原生通道挂载成功后开启"是否真的在收事件"观察窗。
+     *
+     * <p>背景：{@code start()} 返回成功只代表 InputMonitor 注册动作被接受，
+     * 不代表 inputflinger 已在往本进程投递。实测 SystemUI 刚重建时出现过
+     * 注册成功但数分钟无任何手势日志的情况（用户表现为"底角滑轮和任务列表都打不开"）。
+     *
+     * <p>做法：起一个观察任务，期间只要来一条 MotionEvent 就撤销并记一条
+     * {@code verified alive}；窗口内无事件则记一条 {@code silent=1} 供排查对时。
+     * <b>只记录，不自动改行为</b>——理由见 {@link #onChannelVerifyTimeout()}。
+     */
+    private void beginChannelVerification() {
+        channelVerifyPending = true;
+        mainHandler.removeCallbacks(channelVerifyTimeout);
+        mainHandler.postDelayed(channelVerifyTimeout, CHANNEL_VERIFY_TIMEOUT_MS);
+    }
+
+    private void confirmChannelAlive() {
+        if (!channelVerifyPending) return;
+        channelVerifyPending = false;
+        mainHandler.removeCallbacks(channelVerifyTimeout);
+        Log.i("Native input channel verified alive");
+    }
+
+    private void onChannelVerifyTimeout() {
+        if (!channelVerifyPending) return;
+        channelVerifyPending = false;
+        if (!inputSources.usesNativeInput()) return;
+        // 观察窗口内一条事件都没收到。**只诊断，不自动改行为**：
+        // 窗口内无事件也可能是"用户根本没碰屏幕"，模块无法从通道侧区分
+        // "通道坏了"与"用户没操作"。据此自动重挂会把健康的原生通道反复重建，
+        // 甚至误降级 —— 那才是真回归。这里只留一条可检索证据（silent=1）供对时。
+        // 依据见 2026-10-02 记忆：该现象未能复现，代码路径三次实测均 6~13 秒内正常。
+        Log.i("Native input channel accepted but no MotionEvent observed within "
+                + CHANNEL_VERIFY_TIMEOUT_MS + "ms silent=1 (diagnostic only, no action)");
     }
 
     private void onCornerFallbackTouch(MotionEvent event) {
@@ -664,10 +754,11 @@ final class FanRuntime {
 
     void onTaskAppeared(int taskId) {
         freeform.onTaskAppeared(taskId);
-        // 小窗（freeform）出现即代表前台场景已经切换，任务列表必须立刻退场：
-        // 否则列表会浮在小窗之上，或与小窗争夺同一片屏幕区域。
-        // 与系统面板展开走同一条主动关闭通路（瞬时 removeView，不走系统过渡）。
-        dismissTaskSurfaceForForegroundChange("freeform task appeared");
+        // 小窗（freeform）出现 = 用户主动要了一个新容器，属于「让位」：
+        // 列表有序淡出并缩小，把屏幕交给小窗，而不是凭空消失。
+        // 撤窗仍由本进程完成，不走系统 task 过渡（过渡期卡顿的根源）。
+        dismissTaskSurfaceForForegroundChange("freeform task appeared",
+                TaskCenterListView.EXIT_YIELD);
         mainHandler.postDelayed(this::refreshOutsideCapture, 60L);
     }
 
@@ -830,12 +921,17 @@ final class FanRuntime {
         outsideCapture.remove();
         honeycombOverlay.setPaused(true);
         outsideGestures.clearAll();
+        // 用户从顶部下拉通知栏/控制中心，第一信号是"要去做别的事"，但**还不是终局**：
+        // 手指按下就撤走列表会导致"轻轻一碰列表就没了"。这里只做「退位」（缩小变暗），
+        // 真正展开由 applySystemPanelCaptureState 接管；若最终没展开，下面到点弹回原位。
+        setTaskSurfacePaused(true, "system panel touch " + source);
         mainHandler.postDelayed(() -> {
             if (systemPanelTouchBlockUntil != until) return;
             systemPanelTouchBlockUntil = 0L;
             syncPressureDebugOverlay();
             if (!shadeExpanded && !controlCenterExpanded) {
                 honeycombOverlay.setPaused(false);
+                setTaskSurfacePaused(false, "system panel touch " + source);
                 refreshOutsideCapture();
                 mainHandler.postDelayed(this::refreshOutsideCapture, 160L);
             }
@@ -844,20 +940,23 @@ final class FanRuntime {
     }
 
     /**
-     * 前台场景发生变化（系统面板展开 / 小窗出现 / 上划等）时，撤走任务表面。
+     * 前台场景发生变化（小窗出现 / 切走应用 / 上划等）时，按因果撤走任务表面。
      *
      * <p>这是复刻传送门交互范式的关键一步：**不由系统生命周期代劳，而是本进程
-     * 观测到信号后主动、瞬时地关闭**。好处有三个：
+     * 观测到信号后主动撤走**。好处有三个：
      * <ul>
-     *   <li>关闭动作是外加的 {@code removeViewImmediate}，不走系统 task 过渡，
+     *   <li>撤窗动作是外加的 {@code removeViewImmediate}，不走系统 task 过渡，
      *       没有过渡期卡顿（上划卡顿的根源正在于此）；</li>
-     *   <li>关闭时机由信号决定，不依赖系统把谁提到前台，因此不会出现
+     *   <li>时机由信号决定，不依赖系统把谁提到前台，因此不会出现
      *       "上划后露出的是下面的 App"这种观感问题；</li>
      *   <li>状态归位同步完成（{@link #resetFan(boolean)}），下一次呼出不会残留。</li>
      * </ul>
+     *
+     * <p>与旧实现唯一的差别是"怎么走"：不再瞬间消失，而是按 {@code exitReason}
+     * 播一段与因果相符的出场动画（让位 / 安静让路），动画结束再撤窗。
      * 覆盖档位：视差卡片与第三档卡片列表共用同一表面控制器，一并收起。
      */
-    private void dismissTaskSurfaceForForegroundChange(String reason) {
+    private void dismissTaskSurfaceForForegroundChange(String reason, int exitReason) {
         // 判据必须落在「窗口是否真的在屏幕上」，不能落在 state：
         // 侧边栏拉出列表后手指抬起即走 ACTION_UP → resetFan(false)，state 会回到 IDLE，
         // 但列表窗口被刻意保留（hideOverlay=false，抬手后可继续点击）。
@@ -866,14 +965,97 @@ final class FanRuntime {
         if (!taskSwitcherOverlay.isAttached()) {
             Log.i("Task surface dismiss ignored (not attached) reason=" + reason
                     + " state=" + state);
+            stopForegroundWatch();
             return;
         }
-        taskSwitcherOverlay.removeNow();
+        taskSwitcherOverlay.playExit(exitReason);
+        stopForegroundWatch();
         boolean wasTasks = state == State.TASKS;
         // 僵尸态（列表在场但 state 已归位）也要清一遍手势标志，否则残留状态会影响下次呼出。
         resetFan(false);
-        Log.i("Task surface dismissed: " + reason + " wasTasks=" + wasTasks
-                + " state=" + state);
+        Log.i("Task surface dismissed: " + reason + " exit=" + exitReason
+                + " wasTasks=" + wasTasks + " state=" + state);
+    }
+
+    /**
+     * 「暂停」类系统事件（下拉通知栏 / 控制中心）：列表退位但不销毁，
+     * 面板收起后原样弹回。
+     *
+     * <p>判据是"用户有没有要求它消失"：下拉看一眼通知不等于关掉列表，
+     * 所以这里只是缩小变暗让出视觉重心。真正的终局（切走应用 / 开小窗）
+     * 走 {@link #dismissTaskSurfaceForForegroundChange}。
+     */
+    private void setTaskSurfacePaused(boolean paused, String reason) {
+        if (!taskSwitcherOverlay.isAttached()) return;
+        taskSwitcherOverlay.setPaused(paused);
+        Log.i("Task surface " + (paused ? "yielded" : "restored") + ": " + reason);
+    }
+
+    /**
+     * 启动前台任务看护：列表窗口在场期间，周期性比对系统前台任务。
+     *
+     * <p>解决的是「列表开着时，用户从旁路（桌面/通知/其他 App）切走前台应用，
+     * 列表仍浮在新应用之上」——这是底部上划 / 开小窗 / 系统面板 / 点卡片
+     * 四条既有通路都覆盖不到的场景。
+     *
+     * <p>基准取"列表打开那一刻的前台任务"，用户在列表里的操作（点卡片启动）
+     * 会先经 {@link #dismissTaskSurfaceForForegroundChange} 收掉列表并停表，
+     * 因此不会误判。
+     */
+    private void startForegroundWatch() {
+        foregroundWatchTaskId = recentTaskRepository.currentForegroundTaskId();
+        foregroundWatchPendingId = -1;
+        foregroundWatchPendingHits = 0;
+        mainHandler.removeCallbacks(foregroundWatchTick);
+        if (foregroundWatchTaskId < 0) {
+            // 基准读不到就干脆不启动：宁可漏掉一次"从前台切走"的自动关闭
+            // （用户仍可用上划/点外部等既有通路），也不能让"首次读到有效值"
+            // 被误判成一次切换而把列表错误收掉。
+            foregroundWatchActive = false;
+            Log.i("Foreground watch skipped: baseline unavailable");
+            return;
+        }
+        foregroundWatchActive = true;
+        mainHandler.postDelayed(foregroundWatchTick, FOREGROUND_WATCH_INTERVAL_MS);
+        Log.i("Foreground watch started baseline=" + foregroundWatchTaskId);
+    }
+
+    private void stopForegroundWatch() {
+        if (!foregroundWatchActive) return;
+        foregroundWatchActive = false;
+        foregroundWatchPendingId = -1;
+        foregroundWatchPendingHits = 0;
+        mainHandler.removeCallbacks(foregroundWatchTick);
+    }
+
+    private void runForegroundWatch() {
+        if (!foregroundWatchActive) return;
+        // 窗口已经不在了就没有看护的必要（其它通路可能已收掉它）。
+        if (!taskSwitcherOverlay.isAttached()) {
+            stopForegroundWatch();
+            return;
+        }
+        int current = recentTaskRepository.currentForegroundTaskId();
+        if (current < 0 || current == foregroundWatchTaskId) {
+            // 读不到或没变：清掉待确认计数，继续观察。
+            foregroundWatchPendingId = -1;
+            foregroundWatchPendingHits = 0;
+        } else if (current == foregroundWatchPendingId) {
+            foregroundWatchPendingHits++;
+            if (foregroundWatchPendingHits >= FOREGROUND_WATCH_CONFIRM_HITS) {
+                Log.i("Foreground task changed " + foregroundWatchTaskId + " -> " + current);
+                stopForegroundWatch();
+                // 用户真的去了别处：列表「让位」退走，而不是凭空消失。
+                dismissTaskSurfaceForForegroundChange("foreground task changed",
+                        TaskCenterListView.EXIT_YIELD);
+                return;
+            }
+        } else {
+            // 第一次读到新 id：先记为待确认，避免切换瞬间的抖动误触。
+            foregroundWatchPendingId = current;
+            foregroundWatchPendingHits = 1;
+        }
+        mainHandler.postDelayed(foregroundWatchTick, FOREGROUND_WATCH_INTERVAL_MS);
     }
 
     private void applySystemPanelCaptureState(String source) {
@@ -887,12 +1069,18 @@ final class FanRuntime {
             outsideCapture.remove();
             honeycombOverlay.setPaused(true);
             outsideGestures.clearAll();
-            // 系统面板（下拉通知栏 / 控制中心）展开即代表"用户要去做别的事了"：
-            // 任务列表必须立刻撤走，不能等系统过渡慢慢压下去。
-            // 这一步是传送门范式的核心 —— 关闭时机由我们自己掌握，动作瞬时完成。
-            dismissTaskSurfaceForForegroundChange("system panel " + source);
+            // 系统面板（下拉通知栏 / 控制中心）展开 = 用户要去做别的事，但**还没让列表消失**：
+            // 这里只是「退位」（缩小变暗），时机仍由我们自己掌握，不走系统过渡。
+            // 真的切走由前台看护按「让位」收尾。
+            setTaskSurfacePaused(true, "system panel " + source);
             Log.i("Outside capture paused while " + source + " is expanded");
         } else {
+            // 面板收起：列表弹回原位。旧实现在这里补一刀撤走列表，那是
+            // "下拉看一眼通知，列表就没了"这种割裂感的来源。
+            // 注意：从面板点了「当前已在前台的那个应用」时 taskId 不变，
+            // 前台看护无从判断，列表会照原样弹回 —— 这是刻意的选择，
+            // 用户没有要求它消失。（若实测不喜欢，可在这一支改成按 EXIT_YIELD 退场。）
+            setTaskSurfacePaused(false, "system panel collapsed " + source);
             syncPressureDebugOverlay();
             honeycombOverlay.setPaused(false);
             refreshOutsideCapture();
@@ -930,6 +1118,8 @@ final class FanRuntime {
     }
 
     void onMotion(MotionEvent event, Object inputMonitor) {
+        // 收到真实事件即证明输入通道在投递，撤销"挂名通道"自检。
+        confirmChannelAlive();
         try {
             handleMotion(event, inputMonitor);
         } catch (Throwable error) {
@@ -942,31 +1132,6 @@ final class FanRuntime {
     /** 已经接上系统原生输入通道（wm.shell 事件控制器）时为真。 */
     boolean usesNativeInput() {
         return inputSources.usesNativeInput();
-    }
-
-    /** 自建边缘捕获窗口正在处理手势时为真，用于避免同一手势被两条通道重复投递。 */
-    boolean isCapturingByOverlay() {
-        return triggerCapture.isCapturing();
-    }
-
-    /** Copies the vendor input event and processes it on the main gesture looper. */
-    void postMotionEvent(MotionEvent event, Object inputMonitor) {
-        if (event == null) return;
-        // HyperOS can invoke the registered event handler on SystemUI's main looper.
-        // Posting again in that case adds a full queue turn before the overlay sees the
-        // finger, which is especially visible during a fast honeycomb drag.
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            onMotion(event, inputMonitor);
-            return;
-        }
-        final MotionEvent copy = MotionEvent.obtain(event);
-        mainHandler.post(() -> {
-            try {
-                onMotion(copy, inputMonitor);
-            } finally {
-                copy.recycle();
-            }
-        });
     }
 
     private void handleMotion(MotionEvent event, Object inputMonitor) {
@@ -1124,7 +1289,10 @@ final class FanRuntime {
                 if (dy > BOTTOM_SWIPE_MIN_DISTANCE_DP * density && dy > dx * 1.5f) {
                     bottomSwipeArmed = false;
                     Log.i("Bottom swipe-up dismissed task surface dy=" + (int) dy);
-                    dismissTaskSurfaceForForegroundChange("bottom swipe-up");
+                    // 底部上划是"系统要走了"（回桌面 / 手势导航），列表安静让路：
+                    // 只淡出，不缩放不位移，不跟系统导航抢注意力。
+                    dismissTaskSurfaceForForegroundChange("bottom swipe-up",
+                            TaskCenterListView.EXIT_QUIET);
                     return;
                 }
             } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
@@ -1132,6 +1300,60 @@ final class FanRuntime {
             }
         } else {
             bottomSwipeArmed = false;
+        }
+        // 侧边返回手势：列表在场时跟手让路（形态实现见
+        // TaskCenterListView#setBackYieldProgress）。
+        //
+        // 为什么只能"旁听"、绝不能在这里 pilfer：列表窗口是全屏 overlay，
+        // 底下应用收不到触摸，系统返回手势靠自己的 InputMonitor 旁听 +
+        // pilferPointers() 抢指针来执行。模块若抢，用户的返回就没了。
+        //
+        // 系统一旦抢走指针，本通道会收到 ACTION_CANCEL —— 这是"返回确实触发了"
+        // 的可靠信号，比等前台看护（200ms 一趟 × 2 次确认）快得多，
+        // 也让列表退场与系统返回动画同时发生，而不是各演各的。
+        //
+        // 同样必须放在下面那行 return 之前（与底部上划同理）：
+        // 列表可见时触摸会先被那行拦掉，挂不到任何分支。
+        if (taskSwitcherOverlay.isVisible()) {
+            if (action == MotionEvent.ACTION_DOWN) {
+                Insets sides = systemSideGestureInsets();
+                boolean inBottomZone = y >= height - BOTTOM_SWIPE_START_ZONE_DP * density;
+                backYieldSide = inBottomZone ? null
+                        : GestureGeometry.sideAt(x, width, sides.left, sides.right);
+                backYieldDownX = x;
+                backYieldProgress = 0f;
+            } else if (backYieldSide != null && action == MotionEvent.ACTION_MOVE) {
+                float inward = backYieldSide == GestureGeometry.Corner.LEFT
+                        ? x - backYieldDownX : backYieldDownX - x;
+                float p = Math.max(0f, Math.min(1f,
+                        inward / (TaskCenterListView.BACK_YIELD_TRAVEL_DP * density)));
+                // 只增不减：手指回撤时面板不跟着缩回来，否则来回抖。
+                if (p > backYieldProgress) {
+                    backYieldProgress = p;
+                    taskSwitcherOverlay.setBackYield(p,
+                            backYieldSide == GestureGeometry.Corner.LEFT);
+                }
+            } else if (backYieldSide != null
+                    && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) {
+                // CANCEL 且确实滑出过一段 = 系统抢走了指针 = 返回已触发 → 让位；
+                // UP = 系统没抢 = 没触发返回 → 弹回原位，列表继续留着。
+                boolean committed = action == MotionEvent.ACTION_CANCEL
+                        && backYieldProgress >= 0.12f;
+                float progress = backYieldProgress;
+                backYieldSide = null;
+                backYieldProgress = 0f;
+                if (committed) {
+                    Log.i("Back gesture yielded task surface progress="
+                            + Math.round(progress * 100f));
+                    dismissTaskSurfaceForForegroundChange("back gesture",
+                            TaskCenterListView.EXIT_YIELD);
+                    return;
+                }
+                taskSwitcherOverlay.releaseBackYield();
+            }
+        } else {
+            backYieldSide = null;
+            backYieldProgress = 0f;
         }
         if (honeycombOverlay.isVisible() || taskSwitcherOverlay.isVisible()) return;
         if (wheelSessionActive || overlay.isWheelVisible()) return;
@@ -1908,8 +2130,7 @@ final class FanRuntime {
         activeRecentTasks = previews;
         boolean shown = taskSwitcherOverlay.show(previews, taskCorner, anchorX, anchorY,
                 taskConfig,
-                new TaskSwitcherOverlayController.Listener() {
-                    @Override public void onLaunch(RecentTaskPreview task) {
+                new TaskSwitcherOverlayController.Listener() {                    @Override public void onLaunch(RecentTaskPreview task) {
                         recentTaskRepository.launch(task);
                         activeRecentTasks = null;
                         if (state == State.TASKS) state = State.IDLE;
@@ -1929,17 +2150,22 @@ final class FanRuntime {
                         handleListAction(action, task, shortcut);
                     }
 
+                    @Override public void onToggleLock(RecentTaskPreview task, boolean shouldLock) {
+                        applyLockChange(task, shouldLock);
+                    }
+
                     @Override public void onClosed() {
                         activeRecentTasks = null;
                         foregroundTaskIdAtListOpen = -1;
                         if (state == State.TASKS) state = State.IDLE;
                         refreshOutsideCapture();
                     }
-                });
+                }, lockedApps);
         if (shown) {
             state = State.TASKS;
             taskSwitcherOverlay.externalMove(taskLoadCurrentX, taskLoadCurrentY);
             if (taskConfig.haptic) vibrateTick();
+            startForegroundWatch();
         } else {
             activeRecentTasks = null;
             foregroundTaskIdAtListOpen = -1;
@@ -1974,11 +2200,29 @@ final class FanRuntime {
                 recentTaskRepository.openHomeSearch();
                 break;
             case TaskCenterListView.ACTION_LOCK:
-                // OS1 未找到"锁定任务"的原生入口，此处不伪造实现。
-                Log.i("List action pending native entry on HyperOS OS1: lock");
+                // 菜单里的"锁定此应用程序"= 行内锁形同一个动作，走同一条写入路径。
+                if (task != null) {
+                    applyLockChange(task, !lockedApps.isLocked(task.packageName));
+                }
                 break;
             default:
                 break;
+        }
+    }
+
+    /**
+     * 切换应用锁定：写 {@code Settings.System("locked_apps")}。
+     *
+     * <p><b>为什么写 Settings 就是"完整动作"</b>：系统侧的
+     * {@code ProcessPolicy.registerContentObserver()} 正监听这个键，写入后它自己会
+     * 重新加载内存列表、调整目标进程的 adj（实测：锁定 → {@code maxAdj +1}，
+     * 解锁 → 回落 {@code cch+101}）。所以模块不需要通知任何服务，也不需要
+     * 自己维护"锁定"这个概念 —— 写进系统认的那个键，就是让系统按它的规则办事。
+     */
+    private void applyLockChange(RecentTaskPreview task, boolean shouldLock) {
+        if (task == null || task.packageName == null) return;
+        if (!lockedApps.setLocked(task.packageName, shouldLock)) {
+            Log.i("Lock change rejected pkg=" + task.packageName + " locked=" + shouldLock);
         }
     }
 
@@ -2545,12 +2789,25 @@ final class FanRuntime {
     }
 
     private void resetFan(boolean hideOverlay) {
+        // 注意：这里**不能**停掉前台看护。
+        // 侧边栏拉出列表后手指抬起就会走 ACTION_UP → resetFan(false)，
+        // 此时列表窗口仍按设计留在屏幕上（抬手后继续可点），看护必须继续跑。
+        // 停表统一由 dismissTaskSurfaceForForegroundChange 负责，
+        // 看护自身发现窗口不在场时也会自行退出。
         cancelPressureGesture();
         cancelSideHold();
         cancelBottomHoneycombSettle();
         if (hideOverlay && state == State.ACTIVE) overlay.hide();
         if (hideOverlay && state == State.HONEYCOMB) honeycombOverlay.removeNow();
-        if (hideOverlay && state == State.TASKS) taskSwitcherOverlay.removeNow();
+        // 列表看窗口，不看 state：抬手之后列表窗口刻意保留而 state 已经归位到 IDLE，
+        // 用 state == TASKS 判断会在那一刻之后彻底关不掉它（僵尸层的根因）。
+        // 同时改成走四层退场，不再 removeNow 让它凭空消失。
+        // 这里传 hideOverlay=true 的调用方都是"手势流程归位"，
+        // 内部 resetFan(false) 不会再回到本分支，不存在递归。
+        if (hideOverlay && taskSwitcherOverlay.isAttached()) {
+            dismissTaskSurfaceForForegroundChange("gesture reset",
+                    TaskCenterListView.EXIT_RECEDE);
+        }
         if (state == State.TASKS_LOADING) taskLoadGeneration++;
         taskListActivityShown = false;
         pendingFreeformPackage = null;
@@ -3815,6 +4072,10 @@ final class FanRuntime {
         try {
             Bundle bundle = context.getContentResolver().call(ConfigContract.URI, "get", null, null);
             GestureConfig next = GestureConfig.from(bundle);
+            // 用户在设置页点了「重新连接手势输入」时会写一个递增时间戳；此处检出并处理。
+            // 放在配置加载里而不是只挂 ContentObserver，是因为 Bundle 就是唯一数据源，
+            // 判定"值是否变化"最可靠（避免 observer 被多次触发时重复重连）。
+            consumeUserRequestedInputReconnect(bundle);
             ArrayList<RuntimeTarget> resolved = new ArrayList<>();
             ArrayList<RuntimeTarget> resolvedHoneycomb = new ArrayList<>();
             ArrayList<RuntimeTarget> resolvedSide = new ArrayList<>();
@@ -4005,6 +4266,71 @@ final class FanRuntime {
         configHandler.post(this::reloadConfig);
     }
 
+    /**
+     * 处理用户在设置里发起的「重新连接手势输入」请求。
+     *
+     * <p>设置 App 与模块不在同一进程，无法直调本类方法；用户在设置页点按钮时会写一个
+     * 递增的时间戳到 {@link ConfigContract#KEY_INPUT_RECONNECT_AT}，并通过既有的
+     * {@code notifyChange(RUNTIME_URI)} 通路送达。本方法观察该键是否发生了变化，
+     * 变化才执行重连，避免每次配置刷新都无谓重建通道。
+     *
+     * <p>为什么需要这个入口：原生手势通道存在"注册动作成功、inputflinger 未真正投递"
+     * 的情况（见 {@link #onChannelVerifyTimeout()} 的说明）。模块无从可靠判断
+     * "通道是否真的坏了"（用户没碰屏幕时同样收不到事件），**但用户能直接感知手势灵不灵**。
+     * 因此把判据交给用户、把动作留给模块：这是最诚实、也最不需要猜测的设计。
+     */
+    private void consumeUserRequestedInputReconnect(Bundle bundle) {
+        if (bundle == null) return;
+        long requestedAt = bundle.getLong(ConfigContract.KEY_INPUT_RECONNECT_AT, 0L);
+        if (requestedAt <= 0 || requestedAt == lastInputReconnectAt) return;
+        lastInputReconnectAt = requestedAt;
+        Log.i("User requested input channel reconnect at=" + requestedAt);
+        mainHandler.post(this::reconnectInputChannel);
+    }
+
+    /**
+     * 重建原生手势输入通道（用户主动触发的修复动作）。
+     *
+     * <p>链路：先停掉当前监听（释放 InputMonitor 与 InputEventReceiver），
+     * 再重新挂载；成功则重开观察窗确认"真的在收事件"。
+     * 若原生通道本就未接入（corner fallback 模式），只重载配置并如实告知。
+     */
+    private void reconnectInputChannel() {
+        InputSource source = RomBridge.get().input();
+        boolean wasNative = inputSources.usesNativeInput();
+        boolean reattached = false;
+        if (wasNative) {
+            try {
+                source.stop();
+            } catch (Throwable error) {
+                Log.e("Cannot stop gesture monitor before reconnect", error);
+            }
+            failNativeInputRegistration();
+            BridgeResult<Void> restarted = source.start(context, event -> {
+                if (!(event instanceof MotionEvent)) return;
+                onMotion((MotionEvent) event, source.monitorHandle());
+            });
+            if (restarted.isOk()) {
+                completeNativeInputRegistration();
+                beginChannelVerification();
+                reattached = true;
+            } else {
+                Log.e("Input channel reconnect failed code=" + restarted.code()
+                        + " detail=" + restarted.detail(), new IllegalStateException(
+                        "user-requested gesture channel reconnect failed"));
+            }
+        }
+        // 无论重挂成败都要刷新几何与捕获窗口：用户点这个按钮多半是因为手势没反应，
+        // 顺手把显示几何、触发捕获、外面的挖洞层都重算一遍，覆盖尽可能多的失效情形。
+        refreshGeometryAndCaptures("user requested input reconnect");
+        refreshPressureSensor();
+        boolean done = reattached || !wasNative;
+        reportStatus(done ? (reattached ? "已重新连接手势输入" : "手势输入已刷新")
+                : "手势输入重连失败，请尝试重启系统界面");
+        Log.i("Input channel reconnect finished reattached=" + reattached
+                + " wasNative=" + wasNative);
+    }
+
     private RuntimeTarget resolveTarget(PackageManager packageManager,
                                         GestureConfig.TargetSpec target) throws Exception {
         if (target.isShortcut()) {
@@ -4085,10 +4411,6 @@ final class FanRuntime {
         if (now - lastOnDemandConfigReload < 2000) return;
         lastOnDemandConfigReload = now;
         requestConfigReload();
-    }
-
-    private void reportStatusAsync(String value) {
-        configHandler.post(() -> reportStatus(value));
     }
 
     private void updateInterfaceStatusAsync() {
