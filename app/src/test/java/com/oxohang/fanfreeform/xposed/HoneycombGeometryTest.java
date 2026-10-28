@@ -28,8 +28,9 @@ public final class HoneycombGeometryTest {
 
     @Test public void hitChoosesNearestIconWithinRadius() {
         List<HoneycombGeometry.Point> points = HoneycombGeometry.compactPoints(7, 60f);
-        assertEquals(0, HoneycombGeometry.hit(points, 2f, 1f, 25f));
-        assertEquals(-1, HoneycombGeometry.hit(points, 400f, 400f, 25f));
+        // hit() 已被 hitScaled() 取代：命中半径随缩放走，这里用等比缩放（1f/1f）复现旧语义。
+        assertEquals(0, HoneycombGeometry.hitScaled(points, 2f, 1f, 25f, 0f, 0f, 200f, 1f, 1f));
+        assertEquals(-1, HoneycombGeometry.hitScaled(points, 400f, 400f, 25f, 0f, 0f, 200f, 1f, 1f));
     }
 
     @Test public void dragResistanceOnlyAffectsOverflow() {
@@ -109,7 +110,8 @@ public final class HoneycombGeometryTest {
         assertEquals(0f, outside, 0.001f);
         assertTrue(HoneycombGeometry.edgeScale(100f, 100f, 20f)
                 < HoneycombGeometry.edgeScale(70f, 100f, 20f));
-        assertTrue(HoneycombGeometry.edgeInset(100f, 100f, 20f) > 0f);
+        // edgeInset() 已并入 edgeVisibility()/edgeScale()：边缘处仍保留缩放，不立刻消失。
+        assertTrue(HoneycombGeometry.edgeScale(100f, 100f, 20f) > 0f);
     }
 
     @Test public void visibleHitUsesRenderedCenterAndSkipsHiddenIcon() {

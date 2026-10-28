@@ -17,7 +17,8 @@ public class RomBridgeTest {
         assertTrue(result.isOk());
         assertEquals(BridgeResult.Code.OK, result.code());
         assertEquals("value", result.value());
-        assertEquals("value", result.orElse("fallback"));
+        // 成功时取到真值，不走兜底。
+        assertEquals("value", result.isOk() ? result.value() : "fallback");
     }
 
     @Test public void bridgeResultFailCarriesCodeAndDetail() {
@@ -27,7 +28,8 @@ public class RomBridgeTest {
         assertEquals(BridgeResult.Code.CLASS_MISSING, result.code());
         assertEquals("target class not found", result.detail());
         assertNull(result.value());
-        assertEquals("fallback", result.orElse("fallback"));
+        // 失败时值不可取，调用方据此降级到兜底值。
+        assertEquals("fallback", result.isOk() ? result.value() : "fallback");
     }
 
     @Test public void bridgeResultFailCarriesCause() {
@@ -83,7 +85,8 @@ public class RomBridgeTest {
                 .build();
         assertTrue(caps.hasFreeformController());
         assertTrue(caps.hasControlCenter());
-        assertFalse(caps.hasShellEventController());
+        // shellEventController 现在是公开快照字段（OS1 上为 null），不再有 has* 判定方法。
+        assertNull(caps.shellEventController);
         assertFalse(caps.hasRecentsContainer());
     }
 
