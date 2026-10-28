@@ -93,7 +93,7 @@ public final class TaskCenterListActivity extends Activity {
                         repository.removeAllTasks(previews);
                     }
 
-                    @Override public void onListAction(int action, RecentTaskPreview task,
+                    @Override public void onListAction(TaskPanelAction action, RecentTaskPreview task,
                                                        RecentTaskRepository.ShortcutEntry shortcut) {
                         handleListAction(action, task, shortcut);
                     }
@@ -179,30 +179,30 @@ public final class TaskCenterListActivity extends Activity {
         }
     }
 
-    private void handleListAction(int action, RecentTaskPreview task,
+    private void handleListAction(TaskPanelAction action, RecentTaskPreview task,
                                   RecentTaskRepository.ShortcutEntry shortcut) {
         switch (action) {
-            case TaskCenterListView.ACTION_FREEFORM:
+            case FREEFORM:
                 launchTaskInFreeform(task);
                 finish();
                 break;
-            case TaskCenterListView.ACTION_SPLIT:
+            case SPLIT:
                 launchTaskInSplit(task);
                 finish();
                 break;
-            case TaskCenterListView.ACTION_DETAILS:
+            case DETAILS:
                 if (task != null) repository.openAppDetails(task.packageName);
                 finish();
                 break;
-            case TaskCenterListView.ACTION_SHORTCUT:
+            case SHORTCUT:
                 repository.launchShortcut(shortcut);
                 finish();
                 break;
-            case TaskCenterListView.ACTION_SEARCH:
+            case SEARCH:
                 repository.openHomeSearch();
                 finish();
                 break;
-            case TaskCenterListView.ACTION_LOCK:
+            case LOCK:
                 // OS1 未找到"锁定任务"的原生入口，此处不伪造实现。
                 Log.i("List action pending native entry on HyperOS OS1: lock");
                 break;

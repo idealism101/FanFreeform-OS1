@@ -9,6 +9,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import com.oxohang.fanfreeform.ui.Ui;
 import android.os.Handler;
@@ -46,19 +47,12 @@ final class TaskCenterListView extends View
         void onLaunch(RecentTaskPreview task);
         void onCloseTask(RecentTaskPreview task);
         void onCloseAll();
-        void onListAction(int action, RecentTaskPreview task,
+        void onListAction(TaskPanelAction action, RecentTaskPreview task,
                           RecentTaskRepository.ShortcutEntry shortcut);
         /** 点击行内锁形：切换该应用的锁定状态。 */
         void onToggleLock(RecentTaskPreview task, boolean shouldLock);
         void onClosed();
     }
-
-    static final int ACTION_LOCK = 0;
-    static final int ACTION_SPLIT = 1;
-    static final int ACTION_FREEFORM = 2;
-    static final int ACTION_DETAILS = 3;
-    static final int ACTION_SHORTCUT = 4;
-    static final int ACTION_SEARCH = 5;
 
     // 面板改为不透明白：真实投影要从底下透出来，半透明会把投影的暗部也一起透上来。
     private static final int COLOR_PANEL = 0xffffffff;
@@ -89,15 +83,6 @@ final class TaskCenterListView extends View
     /** 行高亮 = iOS secondarySystemFill：系统灰，不用彩色底，选中态才不刺眼。 */
     private static final int COLOR_ROW_FILL = 0x24787880;
 
-    /** 出场因果：与入场同路径反演（点外部 / 返回键）。 */
-    static final int EXIT_RECEDE = 0;
-    /** 出场因果：给被启动的目标让位（点应用 / 点菜单项）。 */
-    static final int EXIT_YIELD = 1;
-    /** 出场因果：跟手上划甩出，继承手速飞离屏幕。 */
-    static final int EXIT_FLING = 2;
-    /** 出场因果：系统事件（开小窗等）安静让路，不抢注意力。 */
-    static final int EXIT_QUIET = 3;
-
     /** 甩出门槛：位移超过它（或手速够快）就放手放行。 */
     private static final float DISMISS_TRAVEL_DP = 110f;
     /** 快速轻扫阈值（px/s）：手速够快时即使位移很小也放行。 */
@@ -111,20 +96,22 @@ final class TaskCenterListView extends View
     private static final float PAUSED_SCALE = 0.90f;
     private static final float PAUSED_ALPHA = 0.55f;
     /**
-     * 侧边返回手势的跟手行程（dp）：手指从边缘往里滑到这么远时，让位进度满格。
-     * 取系统与模块共用的一档，只用于视觉跟手，不参与"返回是否触发"的判定。
+     * 跟手让位的最大横向位移（dp）与最深变暗：够看出在让，但不至于喧宾夺主。
+     *
+     * <p>本类只接收 0..1 的进度（{@link #setBackYieldProgress}），
+     * "手指滑多远算满格"是手势阈值，归编排层管 —— 见
+     * {@code FanRuntime.BACK_YIELD_TRAVEL_DP}。
      */
-    static final float BACK_YIELD_TRAVEL_DP = 72f;
-    /** 跟手让位的最大横向位移（dp）与最深变暗：够看出在让，但不至于喧宾夺主。 */
     private static final float BACK_YIELD_SHIFT_DP = 26f;
     private static final float BACK_YIELD_ALPHA = 0.45f;
     private static final float BACK_YIELD_SCALE = 0.03f;
     /**
-     * 菜单展开时上划收菜单的行程（dp）与放行阈值：滑到行程一半即收，
-     * 与列表甩出的 110dp 相比短一半 —— 退一层比退到底应该更轻。
+     * 菜单展开时，上划多远收起菜单（dp）。
+     *
+     * <p>只判定距离，不做跟手收缩 —— 后者需要一份独立进度、一段回弹动画和三段收尾，
+     * 是纯补丁。这里推够行程直接收，行为一样清楚。
      */
     private static final float MENU_COLLAPSE_TRAVEL_DP = 72f;
-    private static final float MENU_COLLAPSE_RELEASE = 0.5f;
 
     /**
      * 弹簧曲线：WWDC《Designing Fluid Interfaces》给出的 sheet/drawer 参数
@@ -183,11 +170,22 @@ final class TaskCenterListView extends View
     private float yieldProgress;
     private boolean yieldFromLeft;
     /** 菜单展开时纵向拖拽的归属与进度：菜单在，上划收的是菜单，不是列表。 */
-    private boolean draggingMenu;
-    private float menuCollapseProgress;
-    private ValueAnimator menuAnim;
     private int expandedRow = -1;
     private int pressedRow = -1;
+    /** 长按展开菜单：手指落下的行号（-1 = 不在任何行上）。 */
+    private int longPressRow = -1;
+    /** 本次触摸已被长按消费：抬手时不再当作点按，否则会立刻把刚展开的菜单收起。 */
+    private boolean longPressConsumed;
+    /** 长按展开菜单：与行首 ⋮ 同一动作，只是入口不同。 */
+    private final Runnable longPressAction = () -> {
+        if (closing || paused) return;
+        // 用按下点重新定位：入场动画期间视图带缩放与位移，DOWN 当时算的行号会偏。
+        int row = rowAt(toLocalX(touchDownX), toLocalY(touchDownY));
+        if (row < 0) return;
+        longPressConsumed = true;
+        setPressedRow(-1);
+        toggleExpand(row);
+    };
     private List<RecentTaskRepository.ShortcutEntry> menuShortcuts = Collections.emptyList();
     private String shortcutsRequestedFor;
 
@@ -249,14 +247,15 @@ final class TaskCenterListView extends View
         itemPaint.setColor(COLOR_TEXT);
         itemPaint.setTextSize(dp(15));
         footerPaint.setColor(COLOR_ACCENT);
-        // 与正文同级：iOS 里"全部关闭"这类按钮文字不小于列表正文。
-        footerPaint.setTextSize(dp(15));
+        // 底部两个控件是"收尾动作"，比列表正文重一档：17dp 粗体才压得住整列 15dp 正文明。
+        footerPaint.setTextSize(dp(17));
+        footerPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         footerPaint.setTextAlign(Paint.Align.CENTER);
         menuPaint.setColor(COLOR_MENU_BG);
         menuPaint.setShadowLayer(dp(12), 0f, dp(3), COLOR_SHADOW);
         searchBgPaint.setColor(COLOR_SEARCH_BG);
         magnifierPaint.setStyle(Paint.Style.STROKE);
-        magnifierPaint.setStrokeWidth(dp(1.6f));
+        magnifierPaint.setStrokeWidth(dp(1.9f));
         magnifierPaint.setStrokeCap(Paint.Cap.ROUND);
         magnifierPaint.setColor(COLOR_ACCENT);
     }
@@ -328,8 +327,9 @@ final class TaskCenterListView extends View
         int height = getHeight();
         if (width <= 0 || height <= 0) return;
         panelWidth = Math.min(dp(280), Math.round(width * 0.78f));
-        // 行距 52dp：单行点击目标 ≥ 44dp（Apple 最小触摸目标）。
-        rowPitch = dp(52);
+        // 行距 42dp：把"原来的 8 行 + 底部"压成"10 行 + 底部"，窗口总高不变。
+        // 42 = 图标 24 + 上下各 9，仍高于 40dp 的可点下限。
+        rowPitch = dp(42);
         firstRowOffset = dp(30);
         dotX = dp(24);
         // 行首 ⋮ 的点击区 = [0, iconCx-iconRadius]，必须 ≥44dp（Apple 最小触摸目标），
@@ -349,7 +349,9 @@ final class TaskCenterListView extends View
         lockX = panelWidth - dp(28) - dp(20) - dp(4) - dp(20);
         nameEnd = lockX - dp(10);
         int rows = rowCount();
-        float listHeight = dp(118) + (rows - 1) * rowPitch;
+        // 104 = 首行偏移 30 + 末行中心到底部 74（横线 14 + 横线下面板底 60）。
+        // 行距压到 42 后，10 行正好 30 + 9×42 + 74 = 482dp —— 与原来 8 行同高。
+        float listHeight = dp(104) + (rows - 1) * rowPitch;
         float margin = dp(28);
         float maxTop = height - listHeight - margin;
         if (maxTop < margin) maxTop = margin;
@@ -367,7 +369,8 @@ final class TaskCenterListView extends View
             panelLeft = sideMargin;
         }
         panelTop = Math.max(margin, Math.min(desired, maxTop));
-        lastDividerY = panelTop + firstRowOffset + (rows - 1) * rowPitch + dp(21);
+        // 横线紧贴锁/叉：末行中心到横线 14dp（原 21），锁体底距线只剩 4.5dp。
+        lastDividerY = panelTop + firstRowOffset + (rows - 1) * rowPitch + dp(14);
         footerBaseline = lastDividerY + dp(40);
         searchCy = lastDividerY + dp(35);
         panelHeight = listHeight;
@@ -401,12 +404,13 @@ final class TaskCenterListView extends View
 
     private List<MenuEntry> buildMenu() {
         List<MenuEntry> items = new ArrayList<>();
-        items.add(new MenuEntry("锁定此应用程序", ACTION_LOCK, null));
-        items.add(new MenuEntry("在分屏视图中打开", ACTION_SPLIT, null));
-        items.add(new MenuEntry("在弹出视图中打开", ACTION_FREEFORM, null));
-        items.add(new MenuEntry("应用程序信息", ACTION_DETAILS, null));
+        items.add(new MenuEntry("锁定此应用程序", TaskPanelAction.LOCK, null));
+        items.add(new MenuEntry("在分屏视图中打开", TaskPanelAction.SPLIT, null));
+        items.add(new MenuEntry("在弹出视图中打开", TaskPanelAction.FREEFORM, null));
+        items.add(new MenuEntry("应用程序信息", TaskPanelAction.DETAILS, null));
         for (RecentTaskRepository.ShortcutEntry shortcut : menuShortcuts) {
-            items.add(new MenuEntry(shortcut.label.toString(), ACTION_SHORTCUT, shortcut));
+            items.add(new MenuEntry(shortcut.label.toString(),
+                    TaskPanelAction.SHORTCUT, shortcut));
         }
         return items;
     }
@@ -451,23 +455,26 @@ final class TaskCenterListView extends View
     }
 
     public void playDismissal() {
-        playExit(EXIT_RECEDE, 0f);
+        playExit(TaskPanelExit.RECEDE, 0f);
     }
 
     /**
      * 四层出场：每种关闭因果有自己的终点形态，动画只负责把因果说清楚。
      *
      * <ul>
-     *   <li>{@link #EXIT_RECEDE} 回落 —— 点外部 / 返回键，与入场同路径反演；</li>
-     *   <li>{@link #EXIT_YIELD} 让位 —— 点应用 / 菜单项，淡出并缩小让给新界面；</li>
-     *   <li>{@link #EXIT_FLING} 甩出 —— 跟手上划，继承手速飞离屏幕；</li>
-     *   <li>{@link #EXIT_QUIET} 安静让路 —— 系统事件，只淡出，不抢注意力。</li>
+     *   <li>{@link TaskPanelExit#RECEDE} 回落 —— 点外部 / 返回键，与入场同路径反演；</li>
+     *   <li>{@link TaskPanelExit#YIELD} 让位 —— 点应用 / 菜单项，淡出并缩小让给新界面；</li>
+     *   <li>{@link TaskPanelExit#FLING} 甩出 —— 跟手上划，继承手速飞离屏幕；</li>
+     *   <li>{@link TaskPanelExit#QUIET} 安静让路 —— 系统事件，只淡出，不抢注意力。</li>
      * </ul>
      *
      * <p>全部只动 translation / scale / alpha：不触发 layout、不重建窗口，
      * 避免在 SystemUI 进程里走上重排路径（本项目反复踩过的坑）。
+     *
+     * <p>因果类型是 {@link TaskPanelExit}（业务语义），不是本类私有常量 ——
+     * 编排层与承载层因此不必 import 本类就能表达"为什么退场"。
      */
-    void playExit(int reason, float velocityY) {
+    void playExit(TaskPanelExit reason, float velocityY) {
         if (closing) return;
         closing = true;
         if (entry != null) entry.cancel();
@@ -476,24 +483,25 @@ final class TaskCenterListView extends View
         float toAlpha;
         long duration;
         switch (reason) {
-            case EXIT_YIELD:
+            case YIELD:
                 toOffset = dp(-12);
                 toScale = 0.92f;
                 toAlpha = 0f;
                 duration = 220L;
                 break;
-            case EXIT_QUIET:
+            case QUIET:
                 toOffset = dragOffset;
                 toScale = getScaleX();
                 toAlpha = 0f;
                 duration = 120L;
                 break;
-            case EXIT_FLING:
+            case FLING:
                 toOffset = -(panelTop + panelHeight + dp(16));
                 toScale = getScaleX();
                 toAlpha = 0f;
                 duration = flingDuration(toOffset, velocityY);
                 break;
+            // RECEDE 与未来新增的因果统一走"回落"：与入场同路径反演。
             default:
                 toOffset = dp(10);
                 toScale = ENTRY_SCALE_FROM;
@@ -562,61 +570,6 @@ final class TaskCenterListView extends View
         if (transition != null) transition.cancel();
     }
 
-    /**
-     * 菜单展开时的纵向拖拽：往上推 = 菜单跟手收缩；往下 = 纹丝不动（到边界了）。
-     *
-     * <p>为什么往下不做橡皮筋：菜单没有"更大的形态"可以展开，往下拖出位移
-     * 就是在撒谎（暗示下面还有东西）。静止本身就是最诚实的边界反馈。
-     */
-    private void applyMenuDrag(float dy) {
-        if (menuAnim != null) {
-            menuAnim.cancel();
-            menuAnim = null;
-        }
-        float up = Math.max(0f, -dy);
-        menuCollapseProgress = Math.min(1f, up / dp(MENU_COLLAPSE_TRAVEL_DP));
-        invalidate();
-    }
-
-    private void finishMenuDrag() {
-        if (menuCollapseProgress >= MENU_COLLAPSE_RELEASE) {
-            menuCollapseProgress = 0f;
-            collapseExpand();
-            return;
-        }
-        animateMenuProgress(0f);
-    }
-
-    private void settleMenuBack() {
-        animateMenuProgress(0f);
-    }
-
-    /** 菜单收缩进度回弹：松手没到阈值就原样长回去。 */
-    private void animateMenuProgress(float target) {
-        if (menuAnim != null) menuAnim.cancel();
-        float from = menuCollapseProgress;
-        if (Math.abs(from - target) < 0.001f || reducedMotion) {
-            menuAnim = null;
-            menuCollapseProgress = target;
-            invalidate();
-            return;
-        }
-        menuAnim = ValueAnimator.ofFloat(from, target);
-        menuAnim.setDuration(motion(TaskCenterAnimationPolicy.durationMs(160L,
-                animationSpeedIndex)));
-        menuAnim.setInterpolator(SPRING);
-        menuAnim.addUpdateListener(value -> {
-            menuCollapseProgress = (Float) value.getAnimatedValue();
-            invalidate();
-        });
-        menuAnim.addListener(new AnimatorListenerAdapter() {
-            @Override public void onAnimationEnd(Animator animation) {
-                menuAnim = null;
-            }
-        });
-        menuAnim.start();
-    }
-
     private void applyDrag(float dy) {
         // 向上是可达方向，1:1 跟手；向下不可达，给橡皮筋——让"到底了"可被感知。
         float offset = dy < 0f ? dy : Math.min(dy * RUBBER_BAND, dp(RUBBER_LIMIT_DP));
@@ -646,7 +599,7 @@ final class TaskCenterListView extends View
         float upward = -velocityY;
         boolean escaped = projectedTravel(velocityY) >= dp(DISMISS_TRAVEL_DP)
                 || (upward >= FLICK_VELOCITY && travel >= dp(12));
-        if (escaped) playExit(EXIT_FLING, velocityY);
+        if (escaped) playExit(TaskPanelExit.FLING, velocityY);
         else settleBack();
     }
 
@@ -800,13 +753,15 @@ final class TaskCenterListView extends View
     public void releaseResources() {
         released = true;
         listener = null;
+        // 长按计时器要撤：窗口撤掉后回调仍会触发，会对已死的视图展开菜单。
+        cancelPendingLongPress();
+        longPressConsumed = false;
         // 监听要停：视图会被反复创建销毁，观察者留着会泄漏且回调到已死的视图。
         // 状态源本体由调用方持有，这里只退订，不销毁。
         if (lockedApps != null) lockedApps.stopObserving();
         if (entry != null) entry.cancel();
         if (transition != null) transition.cancel();
         if (yieldAnim != null) yieldAnim.cancel();
-        if (menuAnim != null) menuAnim.cancel();
         releaseTracker();
         tasks = Collections.emptyList();
         menuShortcuts = Collections.emptyList();
@@ -823,38 +778,62 @@ final class TaskCenterListView extends View
                 touchDownX = event.getX();
                 touchDownY = event.getY();
                 dragging = false;
+                longPressConsumed = false;
                 // 按下即反馈：手一落下行就亮，不用等到抬手才知道点中了什么。
                 setPressedRow(rowAt(event.getX(), event.getY()));
+                // 长按一行 = 点行首 ⋮：同一个动作，两个入口。
+                longPressRow = rowAt(event.getX(), event.getY());
+                if (longPressRow >= 0) {
+                    postDelayed(longPressAction, ViewConfiguration.getLongPressTimeout());
+                }
                 if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
                 else velocityTracker.clear();
                 velocityTracker.addMovement(event);
                 return true;
-            case MotionEvent.ACTION_MOVE:
+            case MotionEvent.ACTION_MOVE: {
                 if (velocityTracker != null) velocityTracker.addMovement(event);
+                float moveDx = event.getX() - touchDownX;
+                float moveDy = event.getY() - touchDownY;
+                // 长按的前提是手指基本没动：一动就取消，避免拖拽 / 横滑误触菜单。
+                if (Math.abs(moveDx) > touchSlop || Math.abs(moveDy) > touchSlop) {
+                    cancelPendingLongPress();
+                }
+                // 层级优先：一个手势只退一层。菜单展开时纵向拖拽只做一件事 ——
+                // 推够行程就收菜单，列表本体不动（否则上划会把整个面板甩掉）。
+                if (expandedRow >= 0) {
+                    if (-moveDy >= dp(MENU_COLLAPSE_TRAVEL_DP)) {
+                        collapseExpand();
+                        // 基准拉回当前点：否则继续上划时，dragOffset 会带着"收菜单
+                        // 那一段"的累计位移一次性应用，面板会瞬移一下。
+                        touchDownX = event.getX();
+                        touchDownY = event.getY();
+                    }
+                    return true;
+                }
                 if (!dragging) {
-                    float dx = event.getX() - touchDownX;
-                    float dy = event.getY() - touchDownY;
                     // 只有明确的纵向意图才进入拖拽，横向滑动留给点选。
-                    if (Math.abs(dy) <= touchSlop || Math.abs(dy) <= Math.abs(dx)) return true;
+                    if (Math.abs(moveDy) <= touchSlop || Math.abs(moveDy) <= Math.abs(moveDx)) {
+                        return true;
+                    }
                     dragging = true;
                     setPressedRow(-1);
-                    // 层级优先：一个手势只退一层。菜单展开时纵向拖拽作用于菜单，
-                    // 列表本体不动 —— 否则上划会把菜单连同整个列表一起甩掉。
-                    if (expandedRow >= 0) {
-                        draggingMenu = true;
-                    } else {
-                        beginDrag();
-                    }
+                    beginDrag();
                 }
-                if (draggingMenu) applyMenuDrag(event.getY() - touchDownY);
-                else applyDrag(event.getY() - touchDownY);
+                applyDrag(moveDy);
                 return true;
+            }
             case MotionEvent.ACTION_UP:
+                cancelPendingLongPress();
                 if (velocityTracker != null) velocityTracker.addMovement(event);
+                if (longPressConsumed) {
+                    // 长按已经处理过这一下：抬手不再点按，保持菜单展开。
+                    longPressConsumed = false;
+                    setPressedRow(-1);
+                    releaseTracker();
+                    return true;
+                }
                 if (dragging) {
-                    if (draggingMenu) finishMenuDrag();
-                    else finishDrag();
-                    draggingMenu = false;
+                    finishDrag();
                     return true;
                 }
                 setPressedRow(-1);
@@ -866,10 +845,10 @@ final class TaskCenterListView extends View
                 }
                 return true;
             case MotionEvent.ACTION_CANCEL:
-                if (draggingMenu) settleMenuBack();
-                else if (dragging) settleBack();
+                cancelPendingLongPress();
+                longPressConsumed = false;
+                if (dragging) settleBack();
                 dragging = false;
-                draggingMenu = false;
                 setPressedRow(-1);
                 releaseTracker();
                 return true;
@@ -878,9 +857,15 @@ final class TaskCenterListView extends View
         }
     }
 
+    /** 取消尚未触发的长按（手指移动 / 抬手 / 手势流被系统取消）。 */
+    private void cancelPendingLongPress() {
+        removeCallbacks(longPressAction);
+        longPressRow = -1;
+    }
+
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK && !closing) {
-            popLevel(EXIT_RECEDE);
+            popLevel(TaskPanelExit.RECEDE);
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -898,7 +883,6 @@ final class TaskCenterListView extends View
         expandedRow = -1;
         menuShortcuts = Collections.emptyList();
         shortcutsRequestedFor = null;
-        resetMenuProgress();
         computeMetrics();
         invalidate();
     }
@@ -909,22 +893,12 @@ final class TaskCenterListView extends View
      * <p>苹果的分层原则 —— 一个手势只退一层。点面板外、返回键、菜单展开时的上划
      * 三条通路共用这一处判据，不再各自复制一遍「菜单在不在」。
      */
-    private void popLevel(int cause) {
+    private void popLevel(TaskPanelExit cause) {
         if (expandedRow >= 0) {
             collapseExpand();
             return;
         }
         playExit(cause, 0f);
-    }
-
-    /** 菜单进度归零：展开、收起、列表重建都要清，否则下次展开会带着上一次的收缩量。 */
-    private void resetMenuProgress() {
-        if (menuAnim != null) {
-            menuAnim.cancel();
-            menuAnim = null;
-        }
-        menuCollapseProgress = 0f;
-        draggingMenu = false;
     }
 
     private void handleTap(float x, float y) {
@@ -945,7 +919,7 @@ final class TaskCenterListView extends View
         }
         if (x < panelLeft || x > panelLeft + panelWidth
                 || y < panelTop || y > panelTop + panelHeight) {
-            popLevel(EXIT_RECEDE);
+            popLevel(TaskPanelExit.RECEDE);
             return;
         }
         int rows = rowCount();
@@ -984,7 +958,7 @@ final class TaskCenterListView extends View
                 shortcutsRequestedFor = null;
                 if (tasks.isEmpty()) {
                     // 最后一行被关掉，面板无事可做 —— 按「让位」退走。
-                    playExit(EXIT_YIELD, 0f);
+                    playExit(TaskPanelExit.YIELD, 0f);
                 } else {
                     computeMetrics();
                     invalidate();
@@ -996,27 +970,22 @@ final class TaskCenterListView extends View
             return;
         }
         if (y > lastDividerY) {
-            if (expandedRow >= 0) {
-                if (Math.abs(x - searchCenterX()) <= dp(22)
-                        && Math.abs(y - searchCy) <= dp(22)) {
-                    tickHaptic();
-                    listener.onListAction(ACTION_SEARCH, null, null);
-                }
-                return;
-            }
-            float footerCy = footerBaseline - dp(5);
+            // footer 只有两个按钮：搜索与全部关闭。两者都会跳走 / 清空，不分层，
+            // 菜单展开时同样生效 —— 这样这一段只有一条判定链，不是两套。
             if (Math.abs(x - searchCenterX()) <= dp(22)
                     && Math.abs(y - searchCy) <= dp(22)) {
                 tickHaptic();
-                listener.onListAction(ACTION_SEARCH, null, null);
+                listener.onListAction(TaskPanelAction.SEARCH, null, null);
                 return;
             }
+            float footerCy = footerBaseline - dp(5);
             if (Math.abs(y - footerCy) <= dp(22)
                     && Math.abs(x - (panelLeft + panelWidth / 2f)) <= dp(70)) {
                 tickHaptic();
                 listener.onCloseAll();
                 return;
             }
+            // 点了 footer 空白：菜单开着就先收菜单。
             if (expandedRow >= 0) collapseExpand();
             return;
         }
@@ -1024,7 +993,9 @@ final class TaskCenterListView extends View
     }
 
     private float searchCenterX() {
-        return panelLeft + crossX;
+        // 搜索圆落在「锁列」与「关闭叉列」的中点：两列在 panelWidth−72 与 panelWidth−28，
+        // 中点 = panelWidth−50。圆直径 36dp 时左右缘各离两列 4dp，正好嵌进这条缝里。
+        return panelLeft + panelWidth - dp(50);
     }
 
     /** 关闭叉：描边绘制，比文字字形利落，也与行首 ⋮ 的圆点同一套笔触语言。 */
@@ -1097,7 +1068,6 @@ final class TaskCenterListView extends View
             return;
         }
         expandedRow = index;
-        resetMenuProgress();
         String packageName = tasks.get(index).packageName;
         if (!packageName.equals(shortcutsRequestedFor)) {
             menuShortcuts = Collections.emptyList();
@@ -1208,14 +1178,14 @@ final class TaskCenterListView extends View
         }
         float searchX = searchCenterX();
         float searchY = searchCy;
-        canvas.drawCircle(searchX, searchY, dp(14), searchBgPaint);
-        canvas.drawCircle(searchX - dp(1), searchY - dp(1), dp(5), magnifierPaint);
-        canvas.drawLine(searchX + dp(3), searchY + dp(3),
-                searchX + dp(7), searchY + dp(7), magnifierPaint);
+        // 直径 36dp 的圆底：比原 28dp 大一圈，放大镜内部同比放大（x1.29），
+        // 否则会变成"大灰圈里一个小镜子"，反而更空。
+        canvas.drawCircle(searchX, searchY, dp(18), searchBgPaint);
+        canvas.drawCircle(searchX - dp(1), searchY - dp(1), dp(6.5f), magnifierPaint);
+        canvas.drawLine(searchX + dp(4.5f), searchY + dp(4.5f),
+                searchX + dp(10f), searchY + dp(10f), magnifierPaint);
         if (!expanded) return;
-        // 跟手收缩：菜单高度按进度收，菜单项超出收口的部分不画 —— 视觉上就是
-        // 手指把菜单"推"了回去，而不是整块一起消失。
-        float cardBottomNow = cardBottom - (cardBottom - cardTop) * menuCollapseProgress;
+        float cardBottomNow = cardBottom;
         rect.set(cardLeft, cardTop, cardRight, cardBottomNow);
         // 只铺底、不描边：层级靠"底色差一级 + 投影"，描边在灰底上只会糊成一圈脏边。
         canvas.drawRoundRect(rect, dp(CARD_RADIUS_DP), dp(CARD_RADIUS_DP), menuPaint);
@@ -1230,10 +1200,11 @@ final class TaskCenterListView extends View
 
     private static final class MenuEntry {
         final String label;
-        final int action;
+        final TaskPanelAction action;
         final RecentTaskRepository.ShortcutEntry shortcut;
 
-        MenuEntry(String label, int action, RecentTaskRepository.ShortcutEntry shortcut) {
+        MenuEntry(String label, TaskPanelAction action,
+                  RecentTaskRepository.ShortcutEntry shortcut) {
             this.label = label;
             this.action = action;
             this.shortcut = shortcut;

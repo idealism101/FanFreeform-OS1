@@ -51,7 +51,7 @@ final class TaskSwitcherOverlayController {
         void onLaunch(RecentTaskPreview task);
         void onCloseTask(RecentTaskPreview task);
         void onCloseAll();
-        void onListAction(int action, RecentTaskPreview task,
+        void onListAction(TaskPanelAction action, RecentTaskPreview task,
                           RecentTaskRepository.ShortcutEntry shortcut);
         void onToggleLock(RecentTaskPreview task, boolean shouldLock);
         void onClosed();
@@ -149,7 +149,7 @@ final class TaskSwitcherOverlayController {
                         // 与列表档位同一条「让位」语义：动作立刻派发，
                         // 卡片走它自带的淡出，不再瞬间撤窗。
                         listener.onLaunch(task);
-                        playExit(card, TaskCenterListView.EXIT_YIELD);
+                        playExit(card, TaskPanelExit.YIELD);
                     }
 
                     @Override public void onClosed() {
@@ -178,7 +178,7 @@ final class TaskSwitcherOverlayController {
                 // 让位：动作立刻派发（点下去就有反应），窗口等让位动画走完，
                 // 由视图回调 onClosed 再撤 —— 不再"点一下就瞬间消失"。
                 listener.onLaunch(task);
-                playExit(list, TaskCenterListView.EXIT_YIELD);
+                playExit(list, TaskPanelExit.YIELD);
             }
 
             @Override public void onCloseTask(RecentTaskPreview task) {
@@ -187,13 +187,18 @@ final class TaskSwitcherOverlayController {
 
             @Override public void onCloseAll() {
                 listener.onCloseAll();
-                playExit(list, TaskCenterListView.EXIT_YIELD);
+                // 全部关闭后列表里已无任务可操作，面板留着只会显示过期行 —— 直接退场。
+                playExit(list, TaskPanelExit.YIELD);
             }
 
-            @Override public void onListAction(int action, RecentTaskPreview task,
+            @Override public void onListAction(TaskPanelAction action, RecentTaskPreview task,
                                                RecentTaskRepository.ShortcutEntry shortcut) {
                 listener.onListAction(action, task, shortcut);
-                playExit(list, TaskCenterListView.EXIT_YIELD);
+                // 只有"会跳到别处"的动作才直接关面板；锁定是开关，与行内锁形同一语义，
+                // 关掉面板用户就没法连着锁下一个了（关闭层级契约见 docs 附录 B）。
+                if (action != TaskPanelAction.LOCK) {
+                    playExit(list, TaskPanelExit.YIELD);
+                }
             }
 
             @Override public void onToggleLock(RecentTaskPreview task, boolean shouldLock) {
@@ -217,7 +222,7 @@ final class TaskSwitcherOverlayController {
      * （整个屏幕不可用），所以在预期时长后补一刀移除。正常路径下窗口早已撤掉，
      * 这里的 {@code view == current} 判断会让兜底自然落空。
      */
-    void playExit(Surface current, int exitReason) {
+    void playExit(Surface current, TaskPanelExit exitReason) {
         if (current instanceof TaskCenterListView) {
             TaskCenterListView list = (TaskCenterListView) current;
             runOnViewThread(current, () -> list.playExit(exitReason, 0f));
@@ -234,7 +239,7 @@ final class TaskSwitcherOverlayController {
         }, 900L);
     }
 
-    void playExit(int exitReason) {
+    void playExit(TaskPanelExit exitReason) {
         playExit(view, exitReason);
     }
 

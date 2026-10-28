@@ -59,6 +59,14 @@ final class FanRuntime {
     /** 列表态下，纵向位移超过该距离且明显大于横向，判定为一次底部上划。 */
     private static final float BOTTOM_SWIPE_MIN_DISTANCE_DP = 48f;
     /**
+     * 侧边返回手势的跟手行程（dp）：手指从边缘往里滑到这么远时，让位进度满格。
+     *
+     * <p>这是<b>手势阈值</b>，不是面板布局参数 —— 面板只接收 0..1 的进度，
+     * 不关心手指实际滑了多远。因此本常量归编排层，与 {@code BOTTOM_SWIPE_*} 同处。
+     * 只用于视觉跟手，不参与"返回是否触发"的判定（判定看 {@code ACTION_CANCEL}）。
+     */
+    private static final float BACK_YIELD_TRAVEL_DP = 72f;
+    /**
      * 前台任务看护的轮询间隔（毫秒）。
      *
      * <p>只在列表窗口在场期间运行，量很小；200ms 足以在手势停顿前后捕捉到
@@ -758,7 +766,7 @@ final class FanRuntime {
         // 列表有序淡出并缩小，把屏幕交给小窗，而不是凭空消失。
         // 撤窗仍由本进程完成，不走系统 task 过渡（过渡期卡顿的根源）。
         dismissTaskSurfaceForForegroundChange("freeform task appeared",
-                TaskCenterListView.EXIT_YIELD);
+                TaskPanelExit.YIELD);
         mainHandler.postDelayed(this::refreshOutsideCapture, 60L);
     }
 
@@ -956,7 +964,7 @@ final class FanRuntime {
      * 播一段与因果相符的出场动画（让位 / 安静让路），动画结束再撤窗。
      * 覆盖档位：视差卡片与第三档卡片列表共用同一表面控制器，一并收起。
      */
-    private void dismissTaskSurfaceForForegroundChange(String reason, int exitReason) {
+    private void dismissTaskSurfaceForForegroundChange(String reason, TaskPanelExit exitReason) {
         // 判据必须落在「窗口是否真的在屏幕上」，不能落在 state：
         // 侧边栏拉出列表后手指抬起即走 ACTION_UP → resetFan(false)，state 会回到 IDLE，
         // 但列表窗口被刻意保留（hideOverlay=false，抬手后可继续点击）。
@@ -1047,7 +1055,7 @@ final class FanRuntime {
                 stopForegroundWatch();
                 // 用户真的去了别处：列表「让位」退走，而不是凭空消失。
                 dismissTaskSurfaceForForegroundChange("foreground task changed",
-                        TaskCenterListView.EXIT_YIELD);
+                        TaskPanelExit.YIELD);
                 return;
             }
         } else {
@@ -1292,7 +1300,7 @@ final class FanRuntime {
                     // 底部上划是"系统要走了"（回桌面 / 手势导航），列表安静让路：
                     // 只淡出，不缩放不位移，不跟系统导航抢注意力。
                     dismissTaskSurfaceForForegroundChange("bottom swipe-up",
-                            TaskCenterListView.EXIT_QUIET);
+                            TaskPanelExit.QUIET);
                     return;
                 }
             } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
@@ -1326,7 +1334,7 @@ final class FanRuntime {
                 float inward = backYieldSide == GestureGeometry.Corner.LEFT
                         ? x - backYieldDownX : backYieldDownX - x;
                 float p = Math.max(0f, Math.min(1f,
-                        inward / (TaskCenterListView.BACK_YIELD_TRAVEL_DP * density)));
+                        inward / (BACK_YIELD_TRAVEL_DP * density)));
                 // 只增不减：手指回撤时面板不跟着缩回来，否则来回抖。
                 if (p > backYieldProgress) {
                     backYieldProgress = p;
@@ -1346,7 +1354,7 @@ final class FanRuntime {
                     Log.i("Back gesture yielded task surface progress="
                             + Math.round(progress * 100f));
                     dismissTaskSurfaceForForegroundChange("back gesture",
-                            TaskCenterListView.EXIT_YIELD);
+                            TaskPanelExit.YIELD);
                     return;
                 }
                 taskSwitcherOverlay.releaseBackYield();
@@ -2145,7 +2153,7 @@ final class FanRuntime {
                         recentTaskRepository.removeAllTasks(activeRecentTasks);
                     }
 
-                    @Override public void onListAction(int action, RecentTaskPreview task,
+                    @Override public void onListAction(TaskPanelAction action, RecentTaskPreview task,
                             RecentTaskRepository.ShortcutEntry shortcut) {
                         handleListAction(action, task, shortcut);
                     }
@@ -2175,31 +2183,36 @@ final class FanRuntime {
         }
     }
 
-    /** 视差卡片模式菜单动作 → 系统原生接口。 */
-    private void handleListAction(int action, RecentTaskPreview task,
+    /**
+     * 面板菜单动作 → 系统原生接口。
+     *
+     * <p>动作类型是 {@link TaskPanelAction}（业务语义），不是某个视图类的 {@code int} 常量 ——
+     * 换一个面板实现，本方法不需要任何改动。
+     */
+    private void handleListAction(TaskPanelAction action, RecentTaskPreview task,
                                   RecentTaskRepository.ShortcutEntry shortcut) {
         switch (action) {
-            case TaskCenterListView.ACTION_FREEFORM:
+            case FREEFORM:
                 if (task != null && task.packageName != null) {
                     freeformTaskByPackage(task.packageName);
                 }
                 break;
-            case TaskCenterListView.ACTION_SPLIT:
+            case SPLIT:
                 if (task != null) {
                     launchTaskInSplit(task.taskId, foregroundTaskIdAtListOpen);
                     foregroundTaskIdAtListOpen = -1;
                 }
                 break;
-            case TaskCenterListView.ACTION_DETAILS:
+            case DETAILS:
                 if (task != null) recentTaskRepository.openAppDetails(task.packageName);
                 break;
-            case TaskCenterListView.ACTION_SHORTCUT:
+            case SHORTCUT:
                 recentTaskRepository.launchShortcut(shortcut);
                 break;
-            case TaskCenterListView.ACTION_SEARCH:
+            case SEARCH:
                 recentTaskRepository.openHomeSearch();
                 break;
-            case TaskCenterListView.ACTION_LOCK:
+            case LOCK:
                 // 菜单里的"锁定此应用程序"= 行内锁形同一个动作，走同一条写入路径。
                 if (task != null) {
                     applyLockChange(task, !lockedApps.isLocked(task.packageName));
@@ -2806,7 +2819,7 @@ final class FanRuntime {
         // 内部 resetFan(false) 不会再回到本分支，不存在递归。
         if (hideOverlay && taskSwitcherOverlay.isAttached()) {
             dismissTaskSurfaceForForegroundChange("gesture reset",
-                    TaskCenterListView.EXIT_RECEDE);
+                    TaskPanelExit.RECEDE);
         }
         if (state == State.TASKS_LOADING) taskLoadGeneration++;
         taskListActivityShown = false;
