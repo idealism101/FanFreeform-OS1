@@ -44,9 +44,12 @@ jobs:
             echo "::error::sdkmanager not found (SDK_ROOT=$SDK_ROOT)"
             exit 1
           fi
-          chmod +x "$SDKMANAGER"
+          # 镜像里的 sdkmanager 归 root 所有，runner 用户 chmod 会 "Operation not permitted"；
+          # 它本来就是可执行的，所以这里必须容错，否则 set -e 会直接掐断整个步骤。
+          chmod +x "$SDKMANAGER" 2>/dev/null || true
           echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           echo "sdk.dir=$SDK_ROOT" > local.properties
           echo "SDK_ROOT=$SDK_ROOT"
           echo "sdkmanager -> $SDKMANAGER"
@@ -88,9 +91,12 @@ jobs:
             echo "::error::sdkmanager not found (SDK_ROOT=$SDK_ROOT)"
             exit 1
           fi
-          chmod +x "$SDKMANAGER"
+          # 镜像里的 sdkmanager 归 root 所有，runner 用户 chmod 会 "Operation not permitted"；
+          # 它本来就是可执行的，所以这里必须容错，否则 set -e 会直接掐断整个步骤。
+          chmod +x "$SDKMANAGER" 2>/dev/null || true
           echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           echo "sdk.dir=$SDK_ROOT" > local.properties
           echo "SDK_ROOT=$SDK_ROOT"
           echo "sdkmanager -> $SDKMANAGER"
