@@ -52,10 +52,12 @@ jobs:
           echo "sdkmanager -> $SDKMANAGER"
 
       - name: Accept Android SDK licenses
-        run: yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
+        run: |
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
 
       - name: Install Android SDK platform
-        run: "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
+        run: |
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
@@ -94,10 +96,12 @@ jobs:
           echo "sdkmanager -> $SDKMANAGER"
 
       - name: Accept Android SDK licenses
-        run: yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
+        run: |
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
 
       - name: Install Android SDK platform
-        run: "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
+        run: |
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
 
       # debug 包用默认 debug keystore 签名，不需要任何签名密钥。
       - name: Build debug APK
