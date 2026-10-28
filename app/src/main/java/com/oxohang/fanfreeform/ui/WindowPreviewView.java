@@ -22,7 +22,7 @@ public final class WindowPreviewView extends View {
 
     public WindowPreviewView(Context context) {
         super(context);
-        screenPaint.setColor(0xffe7e9f2);
+        screenPaint.setColor(Ui.PREVIEW_SCREEN);
         windowPaint.setColor(0xff737ffc);
         strokePaint.setColor(0x335a67f2);
         strokePaint.setStyle(Paint.Style.STROKE);

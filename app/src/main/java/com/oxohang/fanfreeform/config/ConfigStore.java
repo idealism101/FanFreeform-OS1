@@ -96,6 +96,8 @@ public final class ConfigStore {
             if (value instanceof Boolean) editor.putBoolean(key, (Boolean) value);
             else if (value instanceof Integer) editor.putInt(key, (Integer) value);
             else if (value instanceof Float) editor.putFloat(key, (Float) value);
+            else if (value instanceof Long) editor.putLong(key, (Long) value);
+            else if (value instanceof String) editor.putString(key, (String) value);
         }
         editor.apply();
         notifyChanged();
@@ -260,10 +262,6 @@ public final class ConfigStore {
         return trigger;
     }
 
-    public void resetPressureTriggers() {
-        setPressureTriggers(java.util.Collections.singletonList(PressureTrigger.defaultTrigger()));
-    }
-
     private static boolean containsPressureTrigger(List<PressureTrigger> triggers, int id) {
         for (PressureTrigger trigger : triggers) if (trigger.id == id) return true;
         return false;
@@ -305,64 +303,6 @@ public final class ConfigStore {
         }
         preferences.edit().putString(ConfigContract.KEY_SIDE_COMPONENTS,
                 array.toString()).apply();
-        notifyChanged();
-    }
-
-    public void copyHoneycombTargetsToSide() {
-        setSideTargets(getHoneycombTargets());
-    }
-
-    public void resetHoneycombTuning() {
-        preferences.edit()
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_ENABLED,
-                        ConfigContract.DEFAULT_HONEYCOMB_ENABLED)
-                .putInt(ConfigContract.KEY_HONEYCOMB_MODE,
-                        ConfigContract.DEFAULT_HONEYCOMB_MODE)
-                .putInt(ConfigContract.KEY_HONEYCOMB_ICON_SIZE_DP,
-                        ConfigContract.DEFAULT_HONEYCOMB_ICON_SIZE_DP)
-                .putInt(ConfigContract.KEY_HONEYCOMB_SPACING_DP,
-                        ConfigContract.DEFAULT_HONEYCOMB_SPACING_DP)
-                .putInt(ConfigContract.KEY_HONEYCOMB_ANIMATION_SPEED,
-                        ConfigContract.DEFAULT_HONEYCOMB_ANIMATION_SPEED)
-                .putInt(ConfigContract.KEY_HONEYCOMB_INERTIA,
-                        ConfigContract.DEFAULT_HONEYCOMB_INERTIA)
-                .putInt(ConfigContract.KEY_HONEYCOMB_CENTER_SCALE,
-                        ConfigContract.DEFAULT_HONEYCOMB_CENTER_SCALE)
-                .putInt(ConfigContract.KEY_HONEYCOMB_EDGE_SCALE,
-                        ConfigContract.DEFAULT_HONEYCOMB_EDGE_SCALE)
-                .putInt(ConfigContract.KEY_HONEYCOMB_SELECTION_SCALE,
-                        ConfigContract.DEFAULT_HONEYCOMB_SELECTION_SCALE)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_SHOW_SELECTED_NAME,
-                        ConfigContract.DEFAULT_HONEYCOMB_SHOW_SELECTED_NAME)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_EMPTY_TAP_CLOSE,
-                        ConfigContract.DEFAULT_HONEYCOMB_EMPTY_TAP_CLOSE)
-                .putInt(ConfigContract.KEY_HONEYCOMB_MAX_TARGETS,
-                        ConfigContract.DEFAULT_HONEYCOMB_MAX_TARGETS)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_FOLLOW_FINGER,
-                        ConfigContract.DEFAULT_HONEYCOMB_FOLLOW_FINGER)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_LANDSCAPE_ENABLED,
-                        ConfigContract.DEFAULT_HONEYCOMB_LANDSCAPE_ENABLED)
-                .putInt(ConfigContract.KEY_HONEYCOMB_FIXED_X_PERCENT,
-                        ConfigContract.DEFAULT_HONEYCOMB_FIXED_X_PERCENT)
-                .putInt(ConfigContract.KEY_HONEYCOMB_FIXED_Y_PERCENT,
-                        ConfigContract.DEFAULT_HONEYCOMB_FIXED_Y_PERCENT)
-                .putInt(ConfigContract.KEY_HONEYCOMB_BACKGROUND_STYLE,
-                        ConfigContract.DEFAULT_HONEYCOMB_BACKGROUND_STYLE)
-                .putInt(ConfigContract.KEY_HONEYCOMB_BLUR_DP,
-                        ConfigContract.DEFAULT_HONEYCOMB_BLUR_DP)
-                .putInt(ConfigContract.KEY_HONEYCOMB_DIM_PERCENT,
-                        ConfigContract.DEFAULT_HONEYCOMB_DIM_PERCENT)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_APP_BACKGROUND_ENABLED,
-                        ConfigContract.DEFAULT_HONEYCOMB_APP_BACKGROUND_ENABLED)
-                .putBoolean(ConfigContract.KEY_HONEYCOMB_LIVE_BLUR_ENABLED,
-                        ConfigContract.DEFAULT_HONEYCOMB_LIVE_BLUR_ENABLED)
-                .putInt(ConfigContract.KEY_HONEYCOMB_LIVE_BLUR_DP,
-                        ConfigContract.DEFAULT_HONEYCOMB_LIVE_BLUR_DP)
-                .putInt(ConfigContract.KEY_HONEYCOMB_BACKGROUND_DIM_PERCENT,
-                        ConfigContract.DEFAULT_HONEYCOMB_BACKGROUND_DIM_PERCENT)
-                .putInt(ConfigContract.KEY_HONEYCOMB_DISC_SIZE_PERCENT,
-                        ConfigContract.DEFAULT_HONEYCOMB_DISC_SIZE_PERCENT)
-                .apply();
         notifyChanged();
     }
 
@@ -483,58 +423,6 @@ public final class ConfigStore {
         notifyChanged();
     }
 
-    public void resetBottomGestureSettings() {
-        preferences.edit()
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_ENABLED,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_ENABLED)
-                .putBoolean(ConfigContract.KEY_BOTTOM_LANDSCAPE_ENABLED,
-                        ConfigContract.DEFAULT_BOTTOM_LANDSCAPE_ENABLED)
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_SECOND_STAGE_ENABLED,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_SECOND_STAGE_ENABLED)
-                .putBoolean(ConfigContract.KEY_BOTTOM_LANDSCAPE_SECOND_STAGE_ENABLED,
-                        ConfigContract.DEFAULT_BOTTOM_LANDSCAPE_SECOND_STAGE_ENABLED)
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_FULLSCREEN,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_FULLSCREEN)
-                .putBoolean(ConfigContract.KEY_BOTTOM_LANDSCAPE_FULLSCREEN,
-                        ConfigContract.DEFAULT_BOTTOM_LANDSCAPE_FULLSCREEN)
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_HONEYCOMB_FREEFORM,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_HONEYCOMB_FREEFORM)
-                .putBoolean(ConfigContract.KEY_BOTTOM_LANDSCAPE_HONEYCOMB_FREEFORM,
-                        ConfigContract.DEFAULT_BOTTOM_LANDSCAPE_HONEYCOMB_FREEFORM)
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_FIRST_PRESSURE_LAUNCH,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_FIRST_PRESSURE_LAUNCH)
-                .putBoolean(ConfigContract.KEY_BOTTOM_PORTRAIT_SECOND_PRESSURE_LAUNCH,
-                        ConfigContract.DEFAULT_BOTTOM_PORTRAIT_SECOND_PRESSURE_LAUNCH)
-                .putBoolean(ConfigContract.KEY_BOTTOM_FULLSCREEN,
-                        ConfigContract.DEFAULT_BOTTOM_FULLSCREEN)
-                .putBoolean(ConfigContract.KEY_BOTTOM_HONEYCOMB_FREEFORM,
-                        ConfigContract.DEFAULT_BOTTOM_HONEYCOMB_FREEFORM)
-                .putBoolean(ConfigContract.KEY_FAN_FIXED_SEVEN_ROWS,
-                        ConfigContract.DEFAULT_FAN_FIXED_SEVEN_ROWS)
-                .putInt(ConfigContract.KEY_FAN_LAYOUT_MODE,
-                        ConfigContract.DEFAULT_FAN_LAYOUT_MODE)
-                .putInt(ConfigContract.KEY_FAN_CUSTOM_OUTER_COUNT,
-                        ConfigContract.DEFAULT_FAN_CUSTOM_OUTER_COUNT)
-                .putInt(ConfigContract.KEY_FAN_CUSTOM_MIDDLE_COUNT,
-                        ConfigContract.DEFAULT_FAN_CUSTOM_MIDDLE_COUNT)
-                .putInt(ConfigContract.KEY_FAN_CUSTOM_INNER_COUNT,
-                        ConfigContract.DEFAULT_FAN_CUSTOM_INNER_COUNT)
-                .putInt(ConfigContract.KEY_HOT_WIDTH_PERCENT,
-                        ConfigContract.DEFAULT_HOT_WIDTH_PERCENT)
-                .putInt(ConfigContract.KEY_HOT_HEIGHT_PERCENT,
-                        ConfigContract.DEFAULT_HOT_HEIGHT_PERCENT)
-                .putInt(ConfigContract.KEY_TRIGGER_PERCENT,
-                        ConfigContract.DEFAULT_TRIGGER_PERCENT)
-                .putInt(ConfigContract.KEY_SELECTION_RADIUS_PERCENT,
-                        ConfigContract.DEFAULT_SELECTION_RADIUS_PERCENT)
-                .putInt(ConfigContract.KEY_ICON_SIZE_DP,
-                        ConfigContract.DEFAULT_ICON_SIZE_DP)
-                .putInt(ConfigContract.KEY_FAN_MAX_TARGETS,
-                        ConfigContract.DEFAULT_FAN_MAX_TARGETS)
-                .apply();
-        notifyChanged();
-    }
-
     public void resetBottomOrientationSettings(boolean landscape) {
         SharedPreferences.Editor editor = preferences.edit();
         if (landscape) {
@@ -606,54 +494,6 @@ public final class ConfigStore {
         notifyChanged();
     }
 
-    public void resetSideGestureSettings() {
-        preferences.edit()
-                .putBoolean(ConfigContract.KEY_SIDE_GESTURE_ENABLED,
-                        ConfigContract.DEFAULT_SIDE_GESTURE_ENABLED)
-                .putBoolean(ConfigContract.KEY_SIDE_PORTRAIT_ENABLED,
-                        ConfigContract.DEFAULT_SIDE_PORTRAIT_ENABLED)
-                .putBoolean(ConfigContract.KEY_SIDE_LANDSCAPE_ENABLED,
-                        ConfigContract.DEFAULT_SIDE_LANDSCAPE_ENABLED)
-                .putInt(ConfigContract.KEY_SIDE_PORTRAIT_LAYOUT_MODE,
-                        ConfigContract.DEFAULT_SIDE_LAYOUT_MODE)
-                .putInt(ConfigContract.KEY_SIDE_LANDSCAPE_LAYOUT_MODE,
-                        ConfigContract.DEFAULT_SIDE_LAYOUT_MODE)
-                .putBoolean(ConfigContract.KEY_SIDE_PORTRAIT_FULLSCREEN,
-                        ConfigContract.DEFAULT_SIDE_PORTRAIT_FULLSCREEN)
-                .putBoolean(ConfigContract.KEY_SIDE_LANDSCAPE_FULLSCREEN,
-                        ConfigContract.DEFAULT_SIDE_LANDSCAPE_FULLSCREEN)
-                .putBoolean(ConfigContract.KEY_SIDE_DIRECTION_HORIZONTAL,
-                        ConfigContract.DEFAULT_SIDE_DIRECTION_HORIZONTAL)
-                .putBoolean(ConfigContract.KEY_SIDE_DIRECTION_UP,
-                        ConfigContract.DEFAULT_SIDE_DIRECTION_UP)
-                .putBoolean(ConfigContract.KEY_SIDE_DIRECTION_DOWN,
-                        ConfigContract.DEFAULT_SIDE_DIRECTION_DOWN)
-                .putInt(ConfigContract.KEY_SIDE_MAX_TARGETS,
-                        ConfigContract.DEFAULT_SIDE_MAX_TARGETS)
-                .putInt(ConfigContract.KEY_SIDE_LAYOUT_MODE,
-                        ConfigContract.DEFAULT_SIDE_LAYOUT_MODE)
-                .putInt(ConfigContract.KEY_SIDE_TRIGGER_PERCENT,
-                        ConfigContract.DEFAULT_SIDE_TRIGGER_PERCENT)
-                .putInt(ConfigContract.KEY_SIDE_ICON_SIZE_DP,
-                        ConfigContract.DEFAULT_SIDE_ICON_SIZE_DP)
-                .putInt(ConfigContract.KEY_SIDE_RING_SIZE_PERCENT,
-                        ConfigContract.DEFAULT_SIDE_RING_SIZE_PERCENT)
-                .putInt(ConfigContract.KEY_SIDE_TOP_SAFE_MARGIN_PERCENT,
-                        ConfigContract.DEFAULT_SIDE_TOP_SAFE_MARGIN_PERCENT)
-                .putInt(ConfigContract.KEY_SIDE_REVERSE_CANCEL_PERCENT,
-                        ConfigContract.DEFAULT_SIDE_REVERSE_CANCEL_PERCENT)
-                .putBoolean(ConfigContract.KEY_SIDE_HOLD_ENABLED,
-                        ConfigContract.DEFAULT_SIDE_HOLD_ENABLED)
-                .putInt(ConfigContract.KEY_SIDE_HOLD_DELAY_MS,
-                        ConfigContract.DEFAULT_SIDE_HOLD_DELAY_MS)
-                .putBoolean(ConfigContract.KEY_SIDE_FOLLOW_FINGER,
-                        ConfigContract.DEFAULT_SIDE_FOLLOW_FINGER)
-                .putBoolean(ConfigContract.KEY_SIDE_FULLSCREEN,
-                        ConfigContract.DEFAULT_SIDE_FULLSCREEN)
-                .apply();
-        notifyChanged();
-    }
-
     public void resetSideOrientationSettings(boolean landscape) {
         SharedPreferences.Editor editor = preferences.edit();
         if (landscape) {
@@ -707,42 +547,6 @@ public final class ConfigStore {
                         ConfigContract.DEFAULT_SIDE_RING_SIZE_PERCENT)
                 .putBoolean(ConfigContract.KEY_SIDE_FOLLOW_FINGER,
                         ConfigContract.DEFAULT_SIDE_FOLLOW_FINGER)
-                .apply();
-        notifyChanged();
-    }
-
-    public void resetTaskCenterSettings() {
-        preferences.edit()
-                .putInt(ConfigContract.KEY_SIDE_TASK_MAX_COUNT,
-                        ConfigContract.DEFAULT_SIDE_TASK_MAX_COUNT)
-                .putInt(ConfigContract.KEY_SIDE_TASK_CARD_SIZE_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_CARD_SIZE_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_CARD_WIDTH_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_CARD_WIDTH_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_CARD_HEIGHT_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_CARD_HEIGHT_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_CARD_CORNER_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_CARD_CORNER_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_ICON_SIZE_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_ICON_SIZE_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_ICON_GAP_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_ICON_GAP_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_FINGER_OFFSET_DP,
-                        ConfigContract.DEFAULT_SIDE_TASK_FINGER_OFFSET_DP)
-                .putInt(ConfigContract.KEY_SIDE_TASK_LAYOUT_MODE,
-                        ConfigContract.DEFAULT_SIDE_TASK_LAYOUT_MODE)
-                .putBoolean(ConfigContract.KEY_SIDE_TASK_REVERSE_ORDER,
-                        ConfigContract.DEFAULT_SIDE_TASK_REVERSE_ORDER)
-                .putBoolean(ConfigContract.KEY_SIDE_TASK_SHOW_NAME,
-                        ConfigContract.DEFAULT_SIDE_TASK_SHOW_NAME)
-                .putInt(ConfigContract.KEY_SIDE_TASK_MOTION_MODE,
-                        ConfigContract.DEFAULT_SIDE_TASK_MOTION_MODE)
-                .putInt(ConfigContract.KEY_SIDE_TASK_SWIPE_SPEED_PERCENT,
-                        ConfigContract.DEFAULT_SIDE_TASK_SWIPE_SPEED_PERCENT)
-                .putInt(ConfigContract.KEY_SIDE_TASK_ANIMATION_SPEED,
-                        ConfigContract.DEFAULT_SIDE_TASK_ANIMATION_SPEED)
-                .putBoolean(ConfigContract.KEY_SIDE_TASK_EXTENDED_DOWNWARD_TOLERANCE,
-                        ConfigContract.DEFAULT_SIDE_TASK_EXTENDED_DOWNWARD_TOLERANCE)
                 .apply();
         notifyChanged();
     }
@@ -885,6 +689,10 @@ public final class ConfigStore {
     }
 
     public void putFloat(String key, float value) {
+        queueWrite(key, value);
+    }
+
+    public void putLong(String key, long value) {
         queueWrite(key, value);
     }
 

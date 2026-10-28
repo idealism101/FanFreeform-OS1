@@ -5,8 +5,8 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Display;
 import android.view.Gravity;
-import android.view.View;
 import android.view.WindowManager;
 
 import java.util.List;
@@ -116,9 +116,18 @@ final class HoneycombOverlayController {
         params.setTitle("HyperGestureHoneycomb");
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams
                 .LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        // 高刷新率适配：只在屏幕当前模式确实高于 60Hz 时锁定该帧率，
+        // 60Hz 设备保持系统默认，避免把动态刷新率钉死在 60 而白白增加功耗。
+        // 使用 Context.getDisplay() 而非已弃用的 WindowManager.getDefaultDisplay()。
         try {
-            float refreshRate = windowManager.getDefaultDisplay().getRefreshRate();
-            if (refreshRate > 0f) params.preferredRefreshRate = refreshRate;
+            Display display = context.getDisplay();
+            if (display != null) {
+                Display.Mode mode = display.getMode();
+                if (mode != null) {
+                    float refreshRate = mode.getRefreshRate();
+                    if (refreshRate > 60f) params.preferredRefreshRate = refreshRate;
+                }
+            }
         } catch (Throwable ignored) { }
         boolean blurRequested = config.honeycombLiveBlurEnabled
                 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;

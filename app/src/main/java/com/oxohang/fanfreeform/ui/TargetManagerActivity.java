@@ -50,7 +50,7 @@ public final class TargetManagerActivity extends Activity {
     private final ArrayList<AppTarget> targets = new ArrayList<>();
     private final ExecutorService presentationExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Drawable placeholderIcon = new ColorDrawable(0xffeef0f5);
+    private final Drawable placeholderIcon = new ColorDrawable(Ui.PLACEHOLDER);
     private Future<?> presentationTask;
     private volatile int renderGeneration;
     private volatile boolean destroyed;
@@ -67,8 +67,8 @@ public final class TargetManagerActivity extends Activity {
         kind = getIntent().getStringExtra(EXTRA_KIND);
         if (!KIND_SIDE.equals(kind) && !KIND_HONEYCOMB.equals(kind)
                 && !KIND_PRESSURE.equals(kind)) kind = KIND_FAN;
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
         reloadTargets();
@@ -81,7 +81,7 @@ public final class TargetManagerActivity extends Activity {
 
     private View content() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(0xfff4f5fa);
+        frame.setBackgroundColor(Ui.BACKGROUND);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -108,7 +108,7 @@ public final class TargetManagerActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 16), Ui.dp(this, 8), Ui.dp(this, 16), Ui.dp(this, 8));
-        card.setBackground(Ui.rounded(this, Color.WHITE, 20));
+        card.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         targetContainer = new LinearLayout(this);
         targetContainer.setOrientation(LinearLayout.VERTICAL);
@@ -124,13 +124,13 @@ public final class TargetManagerActivity extends Activity {
         TextView add = text("＋", 32, Color.WHITE, Typeface.NORMAL);
         add.setGravity(Gravity.CENTER);
         add.setContentDescription("添加应用或快捷方式");
-        add.setBackground(Ui.rounded(this, Ui.ACCENT, 30));
+        add.setBackground(Ui.pressable(this, Ui.ACCENT, Ui.RADIUS_SHEET));
         add.setElevation(Ui.dp(this, 8));
         add.setOnClickListener(view -> openPicker());
         FrameLayout.LayoutParams addParams = new FrameLayout.LayoutParams(
                 Ui.dp(this, 58), Ui.dp(this, 58), Gravity.END | Gravity.BOTTOM);
-        addParams.rightMargin = Ui.dp(this, 24);
-        addParams.bottomMargin = Ui.dp(this, 26);
+        addParams.rightMargin = Ui.dp(this, Ui.GAP_XL);
+        addParams.bottomMargin = Ui.dp(this, Ui.GAP_XL);
         frame.addView(add, addParams);
         return frame;
     }
@@ -351,7 +351,7 @@ public final class TargetManagerActivity extends Activity {
         button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 10), 0);
-        button.setBackground(Ui.rounded(this, 0xffeef0ff, 10));
+        button.setBackground(Ui.pressable(this, Ui.ACCENT_SOFT, Ui.RADIUS_CHIP));
         return button;
     }
 

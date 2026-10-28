@@ -1820,18 +1820,6 @@ final class HyperOsFreeformBridge {
         return false;
     }
 
-    private int targetRequestedOrientation(RuntimeTarget target) {
-        if (target == null || target.component == null) {
-            return ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
-        }
-        try {
-            return context.getPackageManager().getActivityInfo(target.component, 0)
-                    .screenOrientation;
-        } catch (Throwable ignored) {
-            return ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
-        }
-    }
-
     private int requestedOrientation(Intent intent) {
         if (intent == null || intent.getComponent() == null) {
             return ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;

@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PathEffect;
@@ -59,8 +58,8 @@ public final class PressureTriggerSettingsActivity extends Activity {
             finish();
             return;
         }
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(buildContent());
     }
@@ -75,7 +74,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
 
     private View buildContent() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(0xfff4f5fa);
+        frame.setBackgroundColor(Ui.BACKGROUND);
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -157,7 +156,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
         preview = new TriggerPreviewView(this);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 230));
-        previewParams.topMargin = Ui.dp(this, 10);
+        previewParams.topMargin = Ui.dp(this, Ui.GAP_S);
         previewCard.addView(preview, previewParams);
         previewCard.addView(slider("圆心水平位置", 0, 100, trigger.centerXPercent,
                 value -> replace(trigger.withGeometry(value, trigger.centerYPercent,
@@ -172,7 +171,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
         root.addView(previewCard, cardParams());
 
         Button delete = button("删除此触发区域");
-        delete.setTextColor(0xffb14242);
+        delete.setTextColor(Ui.DANGER);
         delete.setOnClickListener(view -> deleteTrigger());
         root.addView(delete, buttonParams(14));
         updateSummaries();
@@ -368,7 +367,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
         private final Paint centerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         TriggerPreviewView(Context context) {
             super(context);
-            screenPaint.setColor(0xfff7f8fc);
+            screenPaint.setColor(Ui.BACKGROUND);
             circlePaint.setStyle(Paint.Style.STROKE);
             circlePaint.setStrokeWidth(Ui.dp(context, 3));
             PathEffect dash = new DashPathEffect(new float[]{Ui.dp(context, 8), Ui.dp(context, 5)}, 0);
@@ -376,7 +375,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
             centerPaint.setColor(0x555a67f2);
         }
         @Override protected void onDraw(Canvas canvas) {
-            canvas.drawColor(0xffeef0f8);
+            canvas.drawColor(Ui.BACKGROUND);
             float left = getWidth() * .12f, top = getHeight() * .08f;
             float right = getWidth() * .88f, bottom = getHeight() * .92f;
             canvas.drawRoundRect(left, top, right, bottom, Ui.dp(getContext(), 22),
@@ -385,7 +384,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
             float cy = top + (bottom - top) * trigger.centerYPercent / 100f;
             float radius = Math.min(right - left, bottom - top)
                     * trigger.radiusPercent / 100f;
-            circlePaint.setColor(trigger.enabled ? Ui.ACCENT : 0xff9da3b4);
+            circlePaint.setColor(trigger.enabled ? Ui.ACCENT : Ui.DISABLED);
             centerPaint.setColor(trigger.enabled ? 0x555a67f2 : 0x335f6475);
             canvas.drawCircle(cx, cy, radius, circlePaint);
             canvas.drawCircle(cx, cy, Ui.dp(getContext(), 5), centerPaint);
@@ -396,7 +395,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16), Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         return card;
     }
@@ -404,7 +403,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
     private LinearLayout.LayoutParams cardParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = Ui.dp(this, 14);
+        params.topMargin = Ui.dp(this, Ui.GAP_M);
         return params;
     }
 
@@ -420,7 +419,7 @@ public final class PressureTriggerSettingsActivity extends Activity {
         button.setText(title);
         button.setTextColor(Ui.ACCENT);
         button.setAllCaps(false);
-        button.setBackground(Ui.rounded(this, 0xffeef0ff, 16));
+        button.setBackground(Ui.pressable(this, Ui.ACCENT_SOFT, Ui.RADIUS_CARD));
         return button;
     }
 

@@ -56,8 +56,9 @@ public final class ConfigContractTest {
         assertEquals(60, ConfigContract.MIN_SIDE_RING_SIZE_PERCENT);
         assertEquals(97, ConfigContract.DEFAULT_SIDE_RING_SIZE_PERCENT);
         assertEquals(180, ConfigContract.MAX_SIDE_RING_SIZE_PERCENT);
-        assertEquals(ConfigContract.DEFAULT_SHOW_SELECTED_APP_NAME,
-                ConfigContract.DEFAULT_SIDE_SHOW_APP_NAMES);
+        // 侧边环"显示应用名"的默认值已并入统一默认，不再有独立的 DEFAULT_SIDE_SHOW_APP_NAMES。
+        assertEquals(false, ConfigContract.DEFAULT_SHOW_SELECTED_APP_NAME);
+        assertEquals("side_show_app_names", ConfigContract.KEY_SIDE_SHOW_APP_NAMES);
         assertEquals(false, ConfigContract.DEFAULT_SIDE_FOLLOW_HONEYCOMB);
     }
 

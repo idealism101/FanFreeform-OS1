@@ -39,7 +39,7 @@ public final class MiscSettingsActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         store = new ConfigStore(this);
-        getWindow().setStatusBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
@@ -51,7 +51,7 @@ public final class MiscSettingsActivity extends Activity {
 
     private View content() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -64,12 +64,24 @@ public final class MiscSettingsActivity extends Activity {
         status = text("", 13, Ui.MUTED, Typeface.NORMAL);
         status.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 12));
         processCard.addView(status);
+        Button reconnect = new Button(this);
+        reconnect.setText("重新连接手势输入");
+        reconnect.setOnClickListener(view -> reconnectInputChannel());
+        processCard.addView(reconnect, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 52)));
+        TextView reconnectNote = text("手势没反应时先点这里：重建手势输入通道并重算界面几何，"
+                        + "不会重启手机、也不会闪屏。",
+                13, Ui.MUTED, Typeface.NORMAL);
+        reconnectNote.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 12));
+        processCard.addView(reconnectNote);
+        processCard.addView(Ui.divider(this));
         reload = new Button(this);
         reload.setText("一键重载 Hook 进程");
         reload.setOnClickListener(view -> reloadProcesses());
         processCard.addView(reload, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 52)));
-        TextView reloadNote = text("固定热重载系统界面和小米桌面，不会重启手机。",
+        TextView reloadNote = text("固定热重载系统界面和小米桌面，不会重启手机。\n"
+                        + "若「重新连接手势输入」无效，再用这个。",
                 13, Ui.MUTED, Typeface.NORMAL);
         reloadNote.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 12));
         processCard.addView(reloadNote);
@@ -252,14 +264,26 @@ public final class MiscSettingsActivity extends Activity {
         }
     }
 
-    private String versionLabel() {
-        try {
+    private String versionLabel() {        try {
             android.content.pm.PackageInfo info = getPackageManager()
                     .getPackageInfo(getPackageName(), 0);
             return info.versionName + " · build " + info.getLongVersionCode();
         } catch (Exception ignored) {
             return "未知";
         }
+    }
+
+    /**
+     * 请求模块重建手势输入通道。
+     *
+     * <p>设置 App 与模块不同进程，这里只负责写入一个递增时间戳（表示"请求时刻"），
+     * 模块侧的运行时观察者读到新值后会重建输入通道并重算界面几何。
+     * 语义上等同"轻量自愈"：不重启进程、不闪屏，专门针对"手势突然没反应"。
+     */
+    private void reconnectInputChannel() {
+        store.putLong(ConfigContract.KEY_INPUT_RECONNECT_AT, System.currentTimeMillis());
+        Toast.makeText(this, "已请求重新连接手势输入，正在重建…", Toast.LENGTH_LONG).show();
+        new Handler(Looper.getMainLooper()).postDelayed(this::updateStatus, 1200L);
     }
 
     private void reloadProcesses() {
@@ -316,7 +340,7 @@ public final class MiscSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16),
                 Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         return card;
     }
 

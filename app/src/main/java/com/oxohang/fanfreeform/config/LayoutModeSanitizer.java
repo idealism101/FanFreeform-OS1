@@ -2,7 +2,6 @@ package com.oxohang.fanfreeform.config;
 
 final class LayoutModeSanitizer {
     private static final int LEGACY_SIDE_LAYOUT_ICON_WALL = 6;
-    private static final int LEGACY_SIDE_TASK_LAYOUT_ICON_WALL = 2;
 
     private LayoutModeSanitizer() { }
 
@@ -13,11 +12,10 @@ final class LayoutModeSanitizer {
     }
 
     static int taskLayout(int value) {
-        if (value == LEGACY_SIDE_TASK_LAYOUT_ICON_WALL) {
-            return ConfigContract.SIDE_TASK_LAYOUT_ICONS;
-        }
+        // 值 2 现为「三星同款卡片列表」。旧版曾把 2 用作「图标墙」遗留映射，
+        // 该形态早已由 1（SIDE_TASK_LAYOUT_ICONS）承担，故不再保留 2 的遗留转换。
         return clamp(value, ConfigContract.SIDE_TASK_LAYOUT_FLAT,
-                ConfigContract.SIDE_TASK_LAYOUT_ICONS);
+                ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST);
     }
 
     private static int clamp(int value, int minimum, int maximum) {

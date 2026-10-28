@@ -34,7 +34,6 @@ import com.oxohang.fanfreeform.config.ShortcutIconLoader;
 
 import java.text.Collator;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -45,7 +44,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import org.json.JSONArray;
-import org.json.JSONObject;
 
 public final class AppPickerActivity extends Activity {
     public static final String EXTRA_COMPONENT = "component";
@@ -66,7 +64,7 @@ public final class AppPickerActivity extends Activity {
     private final ArrayList<Entry> filtered = new ArrayList<>();
     private final ExecutorService loadExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Drawable placeholderIcon = new ColorDrawable(0xffeef0f5);
+    private final Drawable placeholderIcon = new ColorDrawable(Ui.PLACEHOLDER);
     private Future<?> loadTask;
     private volatile int loadGeneration;
     private volatile boolean destroyed;
@@ -117,13 +115,13 @@ public final class AppPickerActivity extends Activity {
                 if (target != null) selectedTargets.add(target);
             }
         } catch (Exception ignored) { }
-        getWindow().setStatusBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 18), Ui.dp(this, 10), Ui.dp(this, 18), 0);
-        root.setBackgroundColor(0xfff4f5fa);
+        root.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView back = new TextView(this);
@@ -173,7 +171,7 @@ public final class AppPickerActivity extends Activity {
             shortcutsTab.setOnClickListener(view -> switchMode(MODE_SHORTCUTS));
             LinearLayout.LayoutParams shortcutParams = new LinearLayout.LayoutParams(
                     0, Ui.dp(this, 42), 1);
-            shortcutParams.leftMargin = Ui.dp(this, 8);
+            shortcutParams.leftMargin = Ui.dp(this, Ui.GAP_XS);
             tabs.addView(shortcutsTab, shortcutParams);
             root.addView(tabs);
         }
@@ -186,7 +184,7 @@ public final class AppPickerActivity extends Activity {
         searchInput.setHintTextColor(Ui.MUTED);
         searchInput.setHint("搜索应用");
         searchInput.setPadding(Ui.dp(this, 16), 0, Ui.dp(this, 16), 0);
-        searchInput.setBackground(Ui.rounded(this, Color.WHITE, 16));
+        searchInput.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
         root.addView(searchInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 52)));
 
@@ -194,7 +192,7 @@ public final class AppPickerActivity extends Activity {
             LinearLayout actions = new LinearLayout(this);
             actions.setGravity(Gravity.CENTER_VERTICAL);
             actions.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
-            actions.setBackground(Ui.rounded(this, Color.WHITE, 16));
+            actions.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
             selectionCount = new TextView(this);
             selectionCount.setTextColor(Ui.MUTED);
             selectionCount.setTextSize(13);
@@ -291,7 +289,7 @@ public final class AppPickerActivity extends Activity {
     private LinearLayout.LayoutParams categoryParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 38));
-        params.leftMargin = Ui.dp(this, 8);
+        params.leftMargin = Ui.dp(this, Ui.GAP_XS);
         return params;
     }
 
@@ -322,7 +320,7 @@ public final class AppPickerActivity extends Activity {
 
     private void styleCategory(TextView button, boolean selected) {
         button.setTextColor(selected ? Color.WHITE : Ui.ACCENT);
-        button.setBackground(Ui.rounded(this, selected ? Ui.ACCENT : 0xffeef0ff, 13));
+        button.setBackground(Ui.pressable(this, selected ? Ui.ACCENT : Ui.ACCENT_SOFT, Ui.RADIUS_CHIP));
     }
 
     private String categoryDescription() {
@@ -580,13 +578,13 @@ public final class AppPickerActivity extends Activity {
         updateCategoryUi();
         if (appsTab != null) {
             appsTab.setTextColor(mode == MODE_APPS ? Color.WHITE : Ui.ACCENT);
-            appsTab.setBackground(Ui.rounded(this,
-                    mode == MODE_APPS ? Ui.ACCENT : 0xffeef0ff, 12));
+            appsTab.setBackground(Ui.pressable(this,
+                    mode == MODE_APPS ? Ui.ACCENT : Ui.ACCENT_SOFT, 12));
         }
         if (shortcutsTab != null) {
             shortcutsTab.setTextColor(mode == MODE_SHORTCUTS ? Color.WHITE : Ui.ACCENT);
-            shortcutsTab.setBackground(Ui.rounded(this,
-                    mode == MODE_SHORTCUTS ? Ui.ACCENT : 0xffeef0ff, 12));
+            shortcutsTab.setBackground(Ui.pressable(this,
+                    mode == MODE_SHORTCUTS ? Ui.ACCENT : Ui.ACCENT_SOFT, 12));
         }
     }
 
@@ -601,8 +599,8 @@ public final class AppPickerActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(Ui.dp(AppPickerActivity.this, 14), Ui.dp(AppPickerActivity.this, 10), Ui.dp(AppPickerActivity.this, 14), Ui.dp(AppPickerActivity.this, 10));
             Entry entry = getItem(position);
-            row.setBackground(Ui.rounded(AppPickerActivity.this,
-                    selectedTargets.contains(entry.target) ? 0xfff0f1ff : Color.WHITE,
+            row.setBackground(Ui.pressable(AppPickerActivity.this,
+                    selectedTargets.contains(entry.target) ? Ui.ACCENT_SOFT : Color.WHITE,
                     16));
             row.setClickable(true);
             row.setFocusable(false);
@@ -657,7 +655,7 @@ public final class AppPickerActivity extends Activity {
         button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
-        button.setBackground(Ui.rounded(this, 0xffeef0ff, 10));
+        button.setBackground(Ui.pressable(this, Ui.ACCENT_SOFT, Ui.RADIUS_CHIP));
         return button;
     }
 

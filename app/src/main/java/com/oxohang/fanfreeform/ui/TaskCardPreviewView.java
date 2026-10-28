@@ -21,7 +21,7 @@ final class TaskCardPreviewView extends View {
     TaskCardPreviewView(Context context) {
         super(context);
         density = getResources().getDisplayMetrics().density;
-        background.setColor(0xffeef0f7);
+        background.setColor(Ui.BACKGROUND);
         detail.setColor(0xb8ffffff);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
     }

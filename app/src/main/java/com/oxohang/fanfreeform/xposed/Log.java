@@ -40,6 +40,8 @@ final class Log {
                 }
             };
     private static Context reporterContext;
+    /** XposedBridge 在本进程是否可用（模块自身进程没有 Xposed 桥）。 */
+    private static volatile boolean hostSinkAvailable = true;
     private static Handler reporterHandler;
     private static boolean publishScheduled;
     private static long publishAtUptime;
@@ -64,6 +66,25 @@ final class Log {
         }
     }
 
+    /**
+     * 把日志送进 LSPosed 的宿主机日志。
+     *
+     * <p><b>本类会在两个进程里被调用</b>：SystemUI 进程（模块运行时，Xposed 已注入，
+     * {@link XposedBridge} 可用）与模块自身进程（例如任务中心列表 Activity 的宿主，
+     * 那里没有 Xposed 桥）。后者直接引用 {@link XposedBridge} 会
+     * {@code NoClassDefFoundError} 并连带把宿主 Activity 一起带崩，
+     * 因此必须按"能用就用、不能用就降级"的方式调用，且降级后不再反复试。
+     */
+    private static void writeToHostSink(String line) {
+        if (!hostSinkAvailable) return;
+        try {
+            XposedBridge.log(line);
+        } catch (Throwable unavailable) {
+            // 首次在无 Xposed 的进程里被调用：关掉该通道，后续只走 logcat 与诊断上报。
+            hostSinkAvailable = false;
+        }
+    }
+
     private static void remember(String level, String message, Throwable throwable,
                                  boolean urgent) {
         String key = level + "\n" + (message == null ? "" : message);
@@ -76,7 +97,7 @@ final class Log {
             }
             LAST_LOG.put(key, now);
         }
-        XposedBridge.log(PREFIX + message + (throwable == null ? "" : ": " + throwable));
+        writeToHostSink(PREFIX + message + (throwable == null ? "" : ": " + throwable));
         StringBuilder line = new StringBuilder();
         line.append(FORMATTER.get().format(new Date())).append(' ').append(level).append(' ')
                 .append(message == null ? "" : message);
@@ -150,7 +171,7 @@ final class Log {
             context.getContentResolver().call(ConfigContract.URI,
                     "report_diagnostics", null, extras);
         } catch (Throwable error) {
-            XposedBridge.log(PREFIX + "Cannot publish compatibility diagnostics: " + error);
+            writeToHostSink(PREFIX + "Cannot publish compatibility diagnostics: " + error);
         }
     }
 }

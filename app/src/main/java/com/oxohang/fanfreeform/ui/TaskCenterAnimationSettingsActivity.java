@@ -28,8 +28,8 @@ public final class TaskCenterAnimationSettingsActivity extends Activity {
         super.onCreate(state);
         store = new ConfigStore(this);
         prefs = store.preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
@@ -37,7 +37,7 @@ public final class TaskCenterAnimationSettingsActivity extends Activity {
     private View content() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -180,7 +180,7 @@ public final class TaskCenterAnimationSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16),
                 Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         return card;
     }
 

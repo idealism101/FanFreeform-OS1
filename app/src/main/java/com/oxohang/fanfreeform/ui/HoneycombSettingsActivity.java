@@ -31,8 +31,8 @@ public final class HoneycombSettingsActivity extends Activity {
         super.onCreate(state);
         store = new ConfigStore(this);
         prefs = store.preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(buildContent());
     }
@@ -47,7 +47,7 @@ public final class HoneycombSettingsActivity extends Activity {
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14), Ui.dp(this, 20), Ui.dp(this, 36));
@@ -304,7 +304,7 @@ public final class HoneycombSettingsActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 17), Ui.dp(this, 18), Ui.dp(this, 17));
-        card.setBackground(Ui.rounded(this, Color.WHITE, 20));
+        card.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         return card;
     }
@@ -312,7 +312,7 @@ public final class HoneycombSettingsActivity extends Activity {
     private LinearLayout.LayoutParams cardParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = Ui.dp(this, 14);
+        params.topMargin = Ui.dp(this, Ui.GAP_M);
         return params;
     }
 
@@ -344,7 +344,7 @@ public final class HoneycombSettingsActivity extends Activity {
         button.setMinHeight(0);
         button.setMinimumHeight(0);
         button.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
-        button.setBackground(Ui.rounded(this, 0xffeef0ff, 12));
+        button.setBackground(Ui.pressable(this, Ui.ACCENT_SOFT, Ui.RADIUS_CHIP));
         return button;
     }
 

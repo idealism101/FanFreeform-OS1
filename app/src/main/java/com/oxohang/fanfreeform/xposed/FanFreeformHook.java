@@ -23,6 +23,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.oxohang.fanfreeform.rom.RomBridge;
+import com.oxohang.fanfreeform.rom.RomTargets;
+
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -32,20 +35,39 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public final class FanFreeformHook implements IXposedHookLoadPackage {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String MIUI_HOME = "com.miui.home";
-    private static final String EVENT_CONTROLLER =
-            "com.android.wm.shell.multitasking.miuimultiwinswitch.miuiwindowdecor.MulWinSwitchEventController";
-    private static final String EVENT_HANDLER = EVENT_CONTROLLER + "$EventHandler";
-    private static final String FREEFORM_CONTROLLER =
-            "com.android.wm.shell.multitasking.miuifreeform.MiuiFreeformModeController";
-    private static final String FREEFORM_PIN_HANDLER =
-            "com.android.wm.shell.multitasking.miuifreeform.MiuiFreeformModePinHandler";
-    private static final String FREEFORM_ANIMATION =
-            "com.android.wm.shell.multitasking.miuifreeform.MiuiFreeformModeAnimation";
-    private static final String[] INPUT_CONTROLLER_CANDIDATES = {
-            EVENT_CONTROLLER,
-            "com.android.wm.shell.multitasking.miuimultiwinswitch.MulWinSwitchEventController",
-            "com.android.wm.shell.multitasking.miuimultiwinswitch.MiuiMultiWinSwitchEventController"
-    };
+
+    // ---------------------------------------------------------------------
+    // ROM 私有接口类名一律来自对接层 RomTargets（项目唯一的真相源），
+    // 按「谁存在就用谁」探测，不做机型/系统版本分支。各候选的排序与原因见
+    // RomTargets 的注释（含目标机型 thyme 的真机 dex 核验记录）。
+    // ---------------------------------------------------------------------
+    private static final String[] INPUT_CONTROLLER_CANDIDATES = RomTargets.SHELL_EVENT_CONTROLLER;
+
+    // 解析结果：进程内解析一次后固定，所有 hook 复用同一名字，避免逐处判断。
+    private static volatile String EVENT_CONTROLLER = RomTargets.SHELL_EVENT_CONTROLLER[0];
+    private static volatile String EVENT_HANDLER = RomTargets.SHELL_EVENT_CONTROLLER[0]
+            + "$EventHandler";
+    private static volatile String FREEFORM_CONTROLLER = RomTargets.FREEFORM_CONTROLLER[0];
+    private static volatile String FREEFORM_PIN_HANDLER = RomTargets.FREEFORM_PIN_HANDLER[0];
+    private static volatile String FREEFORM_ANIMATION = RomTargets.FREEFORM_ANIMATION[0];
+
+    /** 选取第一个在目标 ROM 中真实存在的类名；全部不存在时回退到首选名。 */
+    private static String firstExisting(ClassLoader classLoader, String[] candidates) {
+        String found = RomTargets.firstExisting(classLoader, candidates);
+        return found != null ? found : candidates[0];
+    }
+
+    private static void resolveSystemUiClassNames(ClassLoader classLoader) {
+        EVENT_CONTROLLER = firstExisting(classLoader, RomTargets.SHELL_EVENT_CONTROLLER);
+        EVENT_HANDLER = EVENT_CONTROLLER + "$EventHandler";
+        FREEFORM_CONTROLLER = firstExisting(classLoader, RomTargets.FREEFORM_CONTROLLER);
+        FREEFORM_PIN_HANDLER = firstExisting(classLoader, RomTargets.FREEFORM_PIN_HANDLER);
+        FREEFORM_ANIMATION = firstExisting(classLoader, RomTargets.FREEFORM_ANIMATION);
+        Log.i("Resolved ROM class names freeformController=" + FREEFORM_CONTROLLER
+                + " pinHandler=" + FREEFORM_PIN_HANDLER
+                + " animation=" + FREEFORM_ANIMATION
+                + " eventController=" + EVENT_CONTROLLER);
+    }
 
     @SuppressLint("StaticFieldLeak")
     private static volatile FanRuntime runtime;
@@ -57,6 +79,11 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
     private static volatile boolean applicationAttachHookInstalled;
     private static volatile boolean inputControllerHookInstalled;
     private static volatile boolean freeformControllerHookInstalled;
+
+    /** 供同包内的收件端取用当前运行时实例（不额外暴露给模块外）。 */
+    static FanRuntime runtime() {
+        return runtime;
+    }
     private static final Set<String> REPORTED_PROXY_METHODS =
             Collections.synchronizedSet(new LinkedHashSet<>());
 
@@ -66,12 +93,20 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
         // processes would otherwise create duplicate sensors, captures and receivers.
         if (!loadPackageParam.packageName.equals(loadPackageParam.processName)) return;
         if (MIUI_HOME.equals(loadPackageParam.packageName)) {
+            // 对接层快照是「按进程」的：模块在每个宿主进程各加载一份，RomBridge 单例互不干扰。
+            // RecentsContainer 只存在于桌面进程的 ClassLoader 里，桌面若不 attach，
+            // RomBridge.recents() 就会恒为不可用（假阴性），故此处同样要先探测。
+            RomBridge.get().attach(loadPackageParam.classLoader);
             hookShortcutHost(loadPackageParam.classLoader);
             hookRecentsClearButton(loadPackageParam.classLoader);
             return;
         }
         if (!SYSTEM_UI.equals(loadPackageParam.packageName)) return;
         Log.i("Loading in SystemUI process=" + loadPackageParam.processName);
+        // 先让对接层探测并锁定本 ROM 的能力快照（RomBridge 是唯一真相源），
+        // 再解析本进程后续 hook 要用的真实类名，避免按版本分支。
+        RomBridge.get().attach(loadPackageParam.classLoader);
+        resolveSystemUiClassNames(loadPackageParam.classLoader);
         hookApplicationAttach(loadPackageParam.classLoader);
         hookFreeformController(loadPackageParam.classLoader);
         hookFreeformPinHandler(loadPackageParam.classLoader);
@@ -100,11 +135,17 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                     Log.attachReporter(systemUiContext);
                     Log.i("SystemUI application attached package="
                             + systemUiContext.getPackageName());
-                    ensureRuntime(systemUiContext, classLoader);
+                    FanRuntime created = ensureRuntime(systemUiContext, classLoader);
                     probeSystemUiInterfaces(classLoader);
+                    // 系统手势监听是 OS1 上的原生输入通道（与 OS3 事件控制器同源，自带
+                    // InputMonitor 因而可 pilfer）。先于 ROM 事件控制器探测：后者在
+                    // OS1 上不存在，即便存在也不会重复接管（attachSystemGestureMonitor
+                    // 在已接管时直接返回）。
+                    if (created != null) created.attachSystemGestureMonitor(systemUiContext);
                     // The first class lookup can happen before Application.attach(). Retry
                     // here, and then scan the ROM dex for renamed HyperOS 2 classes below.
                     hookFreeformController(classLoader);
+                    hookSoScSplitController(classLoader);
                     hookInputController(classLoader);
                     scanRomClassesAsync(classLoader);
                 }
@@ -123,6 +164,42 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
         probeClass(classLoader, "freeformPinHandler", FREEFORM_PIN_HANDLER);
         probeClass(classLoader, "freeformAnimation", FREEFORM_ANIMATION);
         Log.i("SystemUI probe complete uptime=" + SystemClock.uptimeMillis());
+    }
+
+    /**
+     * MIUI 分屏（SoSc）控制器实例捕获。OS1 分屏不走 AOSP SplitScreen，
+     * 入口为 SoScSplitScreenController.startTask(taskId, position, options)。
+     * 同时捕获 SoScStageCoordinator（读取 main/side stage 当前物理位置用）。
+     */
+    private static void hookSoScSplitController(ClassLoader classLoader) {
+        try {
+            Class<?> controllerClass = XposedHelpers.findClassIfExists(
+                    "com.android.wm.shell.sosc.SoScSplitScreenController", classLoader);
+            if (controllerClass == null) {
+                Log.i("SoSc split controller is unavailable; split action disabled safely");
+                return;
+            }
+            XposedBridge.hookAllConstructors(controllerClass, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    FanRuntime active = runtime;
+                    if (active != null) active.setSoScSplitController(param.thisObject);
+                    Log.i("SoSc split controller connected");
+                }
+            });
+            Class<?> coordinatorClass = XposedHelpers.findClassIfExists(
+                    "com.android.wm.shell.sosc.SoScStageCoordinator", classLoader);
+            if (coordinatorClass != null) {
+                XposedBridge.hookAllConstructors(coordinatorClass, new XC_MethodHook() {
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        FanRuntime active = runtime;
+                        if (active != null) active.setSoScStageCoordinator(param.thisObject);
+                        Log.i("SoSc stage coordinator connected");
+                    }
+                });
+            }
+        } catch (Throwable error) {
+            Log.e("SoSc split controller hook failed", error);
+        }
     }
 
     private static void probeClass(ClassLoader classLoader, String role, String... names) {
@@ -365,9 +442,12 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                         });
                 Log.i("Control center touch-entry hook installed");
             }
-            Class<?> controlCenter = XposedHelpers.findClassIfExists(
-                    "com.miui.systemui.controlcenter.ControlCenterImpl", classLoader);
-            if (controlCenter != null) {
+            // 控制中心实例类名在不同 ROM 上不同（见 RomTargets.CONTROL_CENTER 注释），
+            // 这里对所有存在的候选安装同一组展开/收起回调；找不到对应方法时
+            // hookAllMethods 自然不会安装，不会重复触发。
+            for (String candidate : RomTargets.CONTROL_CENTER) {
+                Class<?> controlCenter = XposedHelpers.findClassIfExists(candidate, classLoader);
+                if (controlCenter == null) continue;
                 XposedBridge.hookAllMethods(controlCenter, "expand", new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
                         if (runtime != null) runtime.onControlCenterExpansionChanged(true);
@@ -388,6 +468,7 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                         if (runtime != null) runtime.onControlCenterExpansionChanged(false);
                     }
                 });
+                Log.i("Control center expansion hook installed class=" + candidate);
             }
             Class<?> panelInjector = XposedHelpers.findClassIfExists(
                     "com.android.systemui.shade.NotificationPanelViewControllerInjector", classLoader);
@@ -637,6 +718,9 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
         runtime = created;
         if (freeformController != null) created.setFreeformController(freeformController);
         installExternalLaunchReceiver(appContext);
+        // 列表 Activity 运行在模块进程，与 SystemUI 进程并列；用户在列表里选的动作
+        // 通过这条收件端回到这里，才能调用只存在于本进程的 SoSc/小窗控制器。
+        TaskCenterActionReceiver.install(appContext);
         Log.i("SystemUI runtime initialized with corner input fallback");
         return created;
     }
@@ -752,6 +836,8 @@ public final class FanFreeformHook implements IXposedHookLoadPackage {
                     freeformController = param.thisObject;
                     FanRuntime active = runtime;
                     if (active != null) active.setFreeformController(param.thisObject);
+                    // 同步登记到对接层，业务可以经 RomBridge 统一取用实例。
+                    RomBridge.get().freeform().registerControllerInstance(param.thisObject);
                 }
             });
             XposedBridge.hookAllMethods(controllerClass, "onTaskAppeared", new XC_MethodHook() {

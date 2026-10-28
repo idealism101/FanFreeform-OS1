@@ -26,8 +26,8 @@ public final class DashboardActivity extends Activity {
         super.onCreate(state);
         store = new ConfigStore(this);
         prefs = store.preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
@@ -40,7 +40,7 @@ public final class DashboardActivity extends Activity {
     private View content() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 20), Ui.dp(this, 20), Ui.dp(this, 36));
@@ -117,7 +117,7 @@ public final class DashboardActivity extends Activity {
         long time = prefs.getLong(ConfigContract.KEY_INTERFACE_TIME, 0L);
         if (value == null || value.isEmpty()) {
             status.setText("等待 SystemUI 与模块连接");
-            status.setTextColor(0xffa16c20);
+            status.setTextColor(Ui.WARNING);
         } else {
             CharSequence relative = time <= 0 ? "" : " · " + DateUtils.getRelativeTimeSpanString(
                     time, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS);
@@ -126,10 +126,10 @@ public final class DashboardActivity extends Activity {
                 status.setText("上次连接于 " + DateUtils.getRelativeTimeSpanString(
                         time, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
                         + "，当前未确认");
-                status.setTextColor(0xffa16c20);
+                status.setTextColor(Ui.WARNING);
             } else {
                 status.setText(value + relative);
-                status.setTextColor(0xff287d4d);
+                status.setTextColor(Ui.SUCCESS);
             }
         }
     }
@@ -165,7 +165,7 @@ public final class DashboardActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 10), Ui.dp(this, 18), Ui.dp(this, 10));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         return card;
     }

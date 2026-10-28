@@ -3,8 +3,6 @@ package com.oxohang.fanfreeform.xposed;
 import com.oxohang.fanfreeform.config.HoneycombSlotLayout;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 final class HoneycombGeometry {
@@ -126,23 +124,6 @@ final class HoneycombGeometry {
         return 1f + (0.58f - 1f) * t;
     }
 
-    static int hit(List<Point> centers, float x, float y, float radius) {
-        int best = -1;
-        float bestDistance = radius * radius;
-        for (int index = 0; index < centers.size(); index++) {
-            Point point = centers.get(index);
-            if (!Float.isFinite(point.x) || !Float.isFinite(point.y)) continue;
-            float dx = x - point.x;
-            float dy = y - point.y;
-            float distance = dx * dx + dy * dy;
-            if (distance <= bestDistance) {
-                bestDistance = distance;
-                best = index;
-            }
-        }
-        return best;
-    }
-
     static int hitScaled(List<Point> centers, float x, float y, float iconSize,
                          float effectCenterX, float effectCenterY, float effectRadius,
                          float centerScale, float edgeScale) {
@@ -174,11 +155,6 @@ final class HoneycombGeometry {
         float progress = clamp((distance - start) / Math.max(1f, end - start), 0f, 1f);
         progress = progress * progress * (3f - 2f * progress);
         return 1f - progress;
-    }
-
-    static float edgeInset(float distance, float viewportRadius, float iconRadius) {
-        float visibility = edgeVisibility(distance, viewportRadius, iconRadius);
-        return iconRadius * (1f - visibility) * 0.62f;
     }
 
     static float edgeScale(float distance, float viewportRadius, float iconRadius) {

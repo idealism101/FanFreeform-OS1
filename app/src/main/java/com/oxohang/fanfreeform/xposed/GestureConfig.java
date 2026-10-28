@@ -634,7 +634,7 @@ final class GestureConfig {
                         ConfigContract.KEY_SIDE_TASK_LAYOUT_MODE,
                 ConfigContract.DEFAULT_SIDE_TASK_LAYOUT_MODE),
                 ConfigContract.SIDE_TASK_LAYOUT_FLAT,
-                ConfigContract.SIDE_TASK_LAYOUT_ICONS);
+                ConfigContract.SIDE_TASK_LAYOUT_SAMSUNG_LIST);
         result.sideTaskReverseOrder = bundle.getBoolean(
                 ConfigContract.KEY_SIDE_TASK_REVERSE_ORDER,
                 ConfigContract.DEFAULT_SIDE_TASK_REVERSE_ORDER);
@@ -872,10 +872,6 @@ final class GestureConfig {
                 ConfigContract.KEY_PRESSURE_CALIBRATION_ACTIVE,
                 ConfigContract.DEFAULT_PRESSURE_CALIBRATION_ACTIVE);
         return result;
-    }
-
-    boolean ready() {
-        return enabled && targets.size() >= 3;
     }
 
     boolean bottomEnabledFor(boolean landscape) {

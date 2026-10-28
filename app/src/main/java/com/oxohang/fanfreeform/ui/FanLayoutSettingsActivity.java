@@ -36,8 +36,8 @@ public final class FanLayoutSettingsActivity extends Activity {
         super.onCreate(state);
         store = new ConfigStore(this);
         prefs = store.preferences();
-        getWindow().setStatusBarColor(0xfff4f5fa);
-        getWindow().setNavigationBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
+        getWindow().setNavigationBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(buildContent());
     }
@@ -45,7 +45,7 @@ public final class FanLayoutSettingsActivity extends Activity {
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -130,7 +130,7 @@ public final class FanLayoutSettingsActivity extends Activity {
         customCard.addView(customControls);
         LinearLayout.LayoutParams customParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        customParams.topMargin = Ui.dp(this, 14);
+        customParams.topMargin = Ui.dp(this, Ui.GAP_M);
         root.addView(customCard, customParams);
         updateCapacitySummary();
         setCustomEnabled(mode == ConfigContract.FAN_LAYOUT_CUSTOM);
@@ -258,7 +258,7 @@ public final class FanLayoutSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 17),
                 Ui.dp(this, 18), Ui.dp(this, 17));
-        card.setBackground(Ui.rounded(this, Color.WHITE, 20));
+        card.setBackground(Ui.pressable(this, Color.WHITE, Ui.RADIUS_CARD));
         card.setElevation(Ui.dp(this, 1));
         return card;
     }

@@ -31,14 +31,14 @@ public final class OutsideSettingsActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         store = new ConfigStore(this);
-        getWindow().setStatusBarColor(0xfff4f5fa);
+        getWindow().setStatusBarColor(Ui.BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         setContentView(content());
     }
 
     private View content() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xfff4f5fa);
+        scroll.setBackgroundColor(Ui.BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(Ui.dp(this, 20), Ui.dp(this, 14),
@@ -50,7 +50,7 @@ public final class OutsideSettingsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(Ui.dp(this, 18), Ui.dp(this, 16),
                 Ui.dp(this, 18), Ui.dp(this, 16));
-        card.setBackground(Ui.rounded(this, Ui.SURFACE, 20));
+        card.setBackground(Ui.pressable(this, Ui.SURFACE, Ui.RADIUS_CARD));
         card.addView(enabledRow("竖屏窗外点击", "关闭后竖屏使用 HyperOS 原生模式",
                 ConfigContract.KEY_OUTSIDE_PORTRAIT_ENABLED,
                 ConfigContract.DEFAULT_OUTSIDE_PORTRAIT_ENABLED, true));
