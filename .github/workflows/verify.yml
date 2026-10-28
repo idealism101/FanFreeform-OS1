@@ -28,14 +28,34 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      # runner 镜像自带 cmdline-tools（16.0），但不一定挂在 PATH 上。
+      # 这里不用 android-actions/setup-android —— 它会去装已被 Google 下架的
+      # 旧版 "tools" 包，必然报 "Failed to find package 'tools'"。
+      # 改为直接解析 sdkmanager 真实路径，并写 local.properties 让 AGP 找得到 SDK。
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -e
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls -1 "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found (SDK_ROOT=$SDK_ROOT)"
+            exit 1
+          fi
+          chmod +x "$SDKMANAGER"
+          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK_ROOT" > local.properties
+          echo "SDK_ROOT=$SDK_ROOT"
+          echo "sdkmanager -> $SDKMANAGER"
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
+        run: yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
 
       - name: Install Android SDK platform
-        run: sdkmanager "platforms;android-34" "build-tools;35.0.0"
+        run: "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
@@ -55,13 +75,29 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -e
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls -1 "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found (SDK_ROOT=$SDK_ROOT)"
+            exit 1
+          fi
+          chmod +x "$SDKMANAGER"
+          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK_ROOT" > local.properties
+          echo "SDK_ROOT=$SDK_ROOT"
+          echo "sdkmanager -> $SDKMANAGER"
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
+        run: yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
 
       - name: Install Android SDK platform
-        run: sdkmanager "platforms;android-34" "build-tools;35.0.0"
+        run: "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-34" "build-tools;35.0.0"
 
       # debug 包用默认 debug keystore 签名，不需要任何签名密钥。
       - name: Build debug APK
