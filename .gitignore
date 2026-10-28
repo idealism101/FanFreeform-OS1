@@ -14,3 +14,6 @@ captures/
 
 # 分发产物（APK / 打包原型等，非源码；含嵌套 .git）
 dist/
+
+# 从 GitHub Actions 产物下载回来的构建包
+downloads/
